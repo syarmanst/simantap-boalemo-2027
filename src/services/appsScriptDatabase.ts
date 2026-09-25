@@ -19,7 +19,7 @@ import { DESIGNATED_SPREADSHEET_ID, villageToRowArray, parseRowsToVillages, getS
 export const APPS_SCRIPT_CONFIG_KEY = 'boalemo_apps_script_url';
 
 // Official Designated Google Apps Script Web App URL for Boalemo
-export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxuCM2APOZxzNWo4Nq2cMRWy6qFR070Uu8TAisry3YuMUgkNOa7VPA1ZfgGmKm6tMrU/exec';
+export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzCPHH2gxPdy2SXO1D3jSRbh8g7cjKFqCkx0XObXeqwWOlqmesXKp74jRNLVhlUgD_q/exec';
 
 /**
  * Menyimpan URL Apps Script Web App ke penyimpanan lokal
@@ -29,11 +29,13 @@ export const saveAppsScriptUrl = (url: string) => {
 };
 
 /**
- * Mengambil URL Apps Script Web App yang tersimpan (selalu memiliki default resmi)
+ * Mengambil URL Apps Script Web App yang tersimpan (selalu memiliki default resmi terbaru)
  */
 export const getAppsScriptUrl = (): string => {
   const saved = localStorage.getItem(APPS_SCRIPT_CONFIG_KEY);
-  if (saved && saved.trim()) return saved.trim();
+  if (saved && saved.trim() && !saved.includes('AKfycbxuCM2APOZxzNWo4Nq2cMRWy6qFR070Uu8TAisry3YuMUgkNOa7VPA1ZfgGmKm6tMrU')) {
+    return saved.trim();
+  }
   return DEFAULT_APPS_SCRIPT_URL;
 };
 
