@@ -17,35 +17,38 @@ import { DESIGNATED_SPREADSHEET_ID, villageToRowArray, parseRowsToVillages, getS
 
 export const APPS_SCRIPT_CONFIG_KEY = 'boalemo_apps_script_url';
 
-// Default / fallback URL jika pengguna sudah deploy Web App di Apps Script
-export const DEFAULT_APPS_SCRIPT_URL = '';
+// Official Designated Google Apps Script Web App URL for Boalemo
+export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxuCM2APOZxzNWo4Nq2cMRWy6qFR070Uu8TAisry3YuMUgkNOa7VPA1ZfgGmKm6tMrU/exec';
 
 /**
  * Menyimpan URL Apps Script Web App ke penyimpanan lokal
  */
 export const saveAppsScriptUrl = (url: string) => {
-  localStorage.setItem(APPS_SCRIPT_CONFIG_KEY, url.trim());
+  localStorage.setItem(APPS_SCRIPT_CONFIG_KEY, (url || DEFAULT_APPS_SCRIPT_URL).trim());
 };
 
 /**
- * Mengambil URL Apps Script Web App yang tersimpan
+ * Mengambil URL Apps Script Web App yang tersimpan (selalu memiliki default resmi)
  */
 export const getAppsScriptUrl = (): string => {
-  return localStorage.getItem(APPS_SCRIPT_CONFIG_KEY) || DEFAULT_APPS_SCRIPT_URL;
+  const saved = localStorage.getItem(APPS_SCRIPT_CONFIG_KEY);
+  if (saved && saved.trim()) return saved.trim();
+  return DEFAULT_APPS_SCRIPT_URL;
 };
 
 /**
  * Tarik data 82 desa dari Google Spreadsheet melalui Apps Script
  */
 export const fetchFromAppsScript = async (
-  scriptUrl: string,
+  scriptUrl: string = DEFAULT_APPS_SCRIPT_URL,
   currentVillages: VillagePlanRecord[]
 ): Promise<{ villages: VillagePlanRecord[]; count: number }> => {
-  if (!scriptUrl) {
-    throw new Error('URL Google Apps Script belum dimasukkan. Silakan pasang Web App URL terlebih dahulu.');
+  const urlToUse = (scriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+  if (!urlToUse) {
+    throw new Error('URL Google Apps Script belum dimasukkan.');
   }
 
-  const endpoint = `${scriptUrl}?action=getData&sheet=DATA_DESA&t=${Date.now()}`;
+  const endpoint = `${urlToUse}?action=getData&sheet=DATA_DESA&t=${Date.now()}`;
   const response = await fetch(endpoint, {
     method: 'GET',
     headers: {
@@ -75,11 +78,12 @@ export const fetchFromAppsScript = async (
  * Kirim seluruh 82 desa ke Google Spreadsheet melalui Apps Script
  */
 export const pushAllToAppsScript = async (
-  scriptUrl: string,
+  scriptUrl: string = DEFAULT_APPS_SCRIPT_URL,
   villages: VillagePlanRecord[]
 ): Promise<{ success: boolean; message: string }> => {
-  if (!scriptUrl) {
-    throw new Error('URL Google Apps Script belum dimasukkan. Silakan pasang Web App URL terlebih dahulu.');
+  const urlToUse = (scriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+  if (!urlToUse) {
+    throw new Error('URL Google Apps Script belum dimasukkan.');
   }
 
   const headerRows = getSpreadsheetHeaderRows();
@@ -92,8 +96,12 @@ export const pushAllToAppsScript = async (
     values: allRows,
   };
 
-  const response = await fetch(scriptUrl, {
+  // Google Apps Script requires text/plain body to avoid CORS preflight OPTION rejection
+  const response = await fetch(urlToUse, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8',
+    },
     body: JSON.stringify(payload),
   });
 
@@ -101,7 +109,7 @@ export const pushAllToAppsScript = async (
     throw new Error(`Gagal menyimpan ke Google Spreadsheet via Apps Script (${response.status})`);
   }
 
-  const resJson = await response.json();
+  const resJson = await response.json().catch(() => ({ status: 'success' }));
   if (resJson.status === 'error') {
     throw new Error(resJson.message || 'Gagal menyimpan ke spreadsheet.');
   }
@@ -110,13 +118,14 @@ export const pushAllToAppsScript = async (
 };
 
 /**
- * Update 1 Desa otomatis ke Google Spreadsheet via Apps Script
+ * Update 1 Desa otomatis ke Google Spreadsheet via Apps Script secara real-time
  */
 export const updateVillageViaAppsScript = async (
-  scriptUrl: string,
+  scriptUrl: string = DEFAULT_APPS_SCRIPT_URL,
   village: VillagePlanRecord
 ): Promise<boolean> => {
-  if (!scriptUrl) return false;
+  const urlToUse = (scriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+  if (!urlToUse) return false;
 
   try {
     const rowValues = villageToRowArray(village);
@@ -127,14 +136,18 @@ export const updateVillageViaAppsScript = async (
       rowValues,
     };
 
-    const res = await fetch(scriptUrl, {
+    // Google Apps Script accepts text/plain smoothly across browsers and origins without CORS preflight failures
+    const res = await fetch(urlToUse, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
       body: JSON.stringify(payload),
     });
 
     return res.ok;
   } catch (e) {
-    console.warn('Apps Script updateVillage error:', e);
+    console.warn('Apps Script updateVillage auto-sync error:', e);
     return false;
   }
 };

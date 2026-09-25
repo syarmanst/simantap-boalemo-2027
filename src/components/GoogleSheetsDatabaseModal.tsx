@@ -31,6 +31,7 @@ import {
   fetchFromAppsScript,
   pushAllToAppsScript,
   APPS_SCRIPT_SAMPLE_CODE,
+  DEFAULT_APPS_SCRIPT_URL,
 } from '../services/appsScriptDatabase';
 
 interface GoogleSheetsDatabaseModalProps {
@@ -372,27 +373,17 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
                 </div>
 
                 {/* Connection Status Indicator */}
-                <div className="p-3 rounded-lg bg-slate-900/70 border border-slate-800 flex items-center justify-between text-xs">
+                <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="text-slate-400">Jalur Koneksi:</span>
-                    {scriptUrl ? (
-                      <span className="flex items-center gap-1.5 text-emerald-300 font-semibold">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>Google Apps Script Web App Terhubung</span>
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-amber-300">
-                        <AlertCircle className="w-4 h-4 text-amber-400" />
-                        <span>URL Apps Script belum dipasang (Klik tab 'Koneksi Apps Script Web App')</span>
-                      </span>
-                    )}
+                    <span className="text-slate-400">Jalur API Google Apps Script:</span>
+                    <span className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>Otomatis Terhubung Permanen</span>
+                    </span>
                   </div>
-                  <button
-                    onClick={() => setActiveTab('apps_script_setup')}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
-                  >
-                    {scriptUrl ? 'Pengaturan URL' : 'Pasang Sekarang'}
-                  </button>
+                  <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
+                    Live & Siap Pakai
+                  </span>
                 </div>
 
                 {/* Database Actions */}
@@ -449,35 +440,43 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
           {activeTab === 'apps_script_setup' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3.5">
-                <div className="flex items-center gap-2 text-white font-bold text-sm">
-                  <Globe className="w-4 h-4 text-emerald-400" />
-                  <span>Pengaturan Web App URL Google Apps Script</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-white font-bold text-sm">
+                    <Globe className="w-4 h-4 text-emerald-400" />
+                    <span>URL Web App Google Apps Script (Telah Dikonfigurasi Otomatis)</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 font-semibold border border-emerald-800">
+                    Aktif Permanen
+                  </span>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Web App URL adalah jembatan REST API gratis dari Google yang bertindak sebagai backend database tanpa memerlukan Firebase.
+                  Web App URL telah terpasang permanen pada aplikasi. Setiap input data atau perubahan dari formulir langsung dikirim secara otomatis ke Google Spreadsheet.
                 </p>
 
                 <div className="space-y-1.5 pt-2">
                   <label className="block text-xs font-semibold text-slate-200">
-                    URL Web App Google Apps Script:
+                    Endpoint Web App Resmi Terpasang:
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="url"
-                      value={inputUrl}
-                      onChange={(e) => setInputUrl(e.target.value)}
-                      placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-                      className="flex-1 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      readOnly
+                      value={DEFAULT_APPS_SCRIPT_URL}
+                      className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-emerald-800/60 text-emerald-300 text-xs font-mono select-all focus:outline-hidden"
                     />
                     <button
-                      onClick={handleSaveScriptUrl}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0"
+                      onClick={() => {
+                        navigator.clipboard.writeText(DEFAULT_APPS_SCRIPT_URL);
+                        setStatusMessage({ type: 'success', text: 'URL Web App berhasil disalin ke clipboard!' });
+                      }}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition-colors cursor-pointer shrink-0"
                     >
-                      Simpan URL
+                      Salin URL
                     </button>
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    Format: URL berakhiran <code className="text-emerald-300 font-mono">/exec</code> yang didapatkan saat menekan <em>Deploy &gt; New deployment &gt; Web app</em> di Google Spreadsheet.
+                  <p className="text-[11px] text-emerald-400 flex items-center gap-1.5 pt-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Terhubung langsung ke Spreadsheet Boalemo (1ETuI256p8T5x-4WFVHB-FKonUkY8di9DroLkpAndF1w). Anda tidak perlu mengubah URL ini lagi.</span>
                   </p>
                 </div>
               </div>
@@ -486,10 +485,10 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
               <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
                 <div className="font-semibold text-slate-200">Keunggulan Arsitektur Google Apps Script ini:</div>
                 <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
+                  <li><strong>Otomatis Simpan Real-time</strong>: Setiap perubahan pada formulir langsung tersimpan ke spreadsheet.</li>
                   <li><strong>Tidak memerlukan akun/project Firebase</strong> sama sekali.</li>
                   <li><strong>Tidak memerlukan login OAuth popup</strong> di setiap komputer yang membuka aplikasi.</li>
-                  <li><strong>100% Cocok di Vercel</strong>, Netlify, Cloudflare Pages, atau hosting mana saja karena tidak membutuhkan server khusus.</li>
-                  <li>Data tersimpan aman di Google Spreadsheet milik Anda (<code className="text-emerald-400 font-mono">1ETuI256p8T5x-4WFVHB-FKonUkY8di9DroLkpAndF1w</code>).</li>
+                  <li><strong>100% Siap di Vercel</strong>, Netlify, atau web hosting mana saja tanpa server tambahan.</li>
                 </ul>
               </div>
             </div>

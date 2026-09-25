@@ -118,7 +118,7 @@ export const GoogleSheetsBar: React.FC<GoogleSheetsBarProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold text-[11px]">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Google Sheets Terhubung
+                Google Apps Script Terhubung (Otomatis Simpan)
               </span>
               <span className="text-white font-medium truncate max-w-[200px] sm:max-w-[300px]" title={sheetsConfig.spreadsheetTitle}>
                 {sheetsConfig.spreadsheetTitle}

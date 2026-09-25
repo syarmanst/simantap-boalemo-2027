@@ -76,6 +76,7 @@ export default function App() {
           ...parsed,
           spreadsheetId: DESIGNATED_SPREADSHEET_ID,
           spreadsheetUrl: DESIGNATED_SPREADSHEET_URL,
+          autoSync: true, // Always enforce autoSync for real-time spreadsheet updates
         };
       }
     } catch (e) {
