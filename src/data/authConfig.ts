@@ -16,6 +16,85 @@ export const DEFAULT_SUPERADMIN = {
   displayName: 'Super Administrator Kabupaten',
 };
 
+export const CUSTOM_PASSWORDS_KEY = 'boalemo_custom_passwords';
+
+export const getCustomPasswords = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PASSWORDS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+export const saveCustomPassword = (accountKey: string, newPass: string): void => {
+  const current = getCustomPasswords();
+  current[accountKey] = newPass;
+  localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(current));
+};
+
+export const resetPasswordToDefault = (accountKey: string): void => {
+  const current = getCustomPasswords();
+  delete current[accountKey];
+  localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(current));
+};
+
+export const changeAccountPassword = (
+  roleTarget: 'super_admin' | 'admin_kecamatan',
+  identifier: string,
+  currentPass: string,
+  newPass: string
+): { success: boolean; message: string } => {
+  const cleanPass = currentPass.trim();
+  const cleanNewPass = newPass.trim();
+
+  if (!cleanNewPass || cleanNewPass.length < 5) {
+    return { success: false, message: 'Password baru minimal harus 5 karakter.' };
+  }
+
+  const customPasswords = getCustomPasswords();
+
+  if (roleTarget === 'super_admin') {
+    const savedPass = customPasswords['superadmin'];
+    const isOldValid = savedPass
+      ? cleanPass === savedPass
+      : (cleanPass === DEFAULT_SUPERADMIN.password || cleanPass === 'boalemo2027' || cleanPass === 'admin');
+
+    if (!isOldValid) {
+      return { success: false, message: 'Password saat ini salah untuk akun Super Admin.' };
+    }
+
+    saveCustomPassword('superadmin', cleanNewPass);
+    return { success: true, message: 'Password Super Admin berhasil diubah!' };
+  }
+
+  // Admin Kecamatan
+  const cleanId = identifier.trim().toLowerCase();
+  const matchedKec = KECAMATAN_LIST_META.find(
+    (k) =>
+      k.code === cleanId ||
+      k.name.toLowerCase() === cleanId ||
+      `admin_${k.code}` === cleanId
+  );
+
+  if (!matchedKec) {
+    return { success: false, message: 'Kecamatan tidak ditemukan.' };
+  }
+
+  const accountKey = `kec_${matchedKec.code}`;
+  const savedKecPass = customPasswords[accountKey];
+  const isKecOldValid = savedKecPass
+    ? cleanPass === savedKecPass
+    : (cleanPass === `admin${matchedKec.code}` || cleanPass === 'admin2027' || cleanPass === matchedKec.code || cleanPass === 'admin');
+
+  if (!isKecOldValid) {
+    return { success: false, message: `Password saat ini salah untuk Admin Kec. ${matchedKec.name}.` };
+  }
+
+  saveCustomPassword(accountKey, cleanNewPass);
+  return { success: true, message: `Password Admin Kecamatan ${matchedKec.name} berhasil diubah!` };
+};
+
 export const DEFAULT_VIEWER_SESSION: UserSession = {
   role: 'viewer',
   username: 'guest',
@@ -29,11 +108,17 @@ export const authenticateUser = (
 ): { success: boolean; session?: UserSession; message?: string } => {
   const cleanId = identifier.trim().toLowerCase();
   const cleanPass = pass.trim();
+  const customPasswords = getCustomPasswords();
 
   if (roleTarget === 'super_admin') {
+    const customSuperPass = customPasswords['superadmin'];
+    const isSuperPassValid = customSuperPass
+      ? cleanPass === customSuperPass
+      : (cleanPass === DEFAULT_SUPERADMIN.password || cleanPass === 'boalemo2027' || cleanPass === 'admin');
+
     if (
       (cleanId === 'superadmin' || cleanId === 'super' || cleanId === 'admin_boalemo') &&
-      (cleanPass === 'superadmin2027' || cleanPass === 'boalemo2027' || cleanPass === 'admin')
+      isSuperPassValid
     ) {
       return {
         success: true,
@@ -46,7 +131,7 @@ export const authenticateUser = (
     }
     return {
       success: false,
-      message: 'Username atau Password Super Admin tidak sesuai. (Gunakan: superadmin / superadmin2027)',
+      message: 'Username atau Password Super Admin tidak sesuai.',
     };
   }
 
@@ -67,14 +152,15 @@ export const authenticateUser = (
     };
   }
 
-  // Accept passwords: admin + kode, or admin2027, or same as kode, or 'admin'
-  if (
-    cleanPass === `admin${matchedKec.code}` ||
-    cleanPass === 'admin2027' ||
-    cleanPass === matchedKec.code ||
-    cleanPass === 'admin' ||
-    cleanPass === ''
-  ) {
+  const customKecPass = customPasswords[`kec_${matchedKec.code}`];
+  const isKecPassValid = customKecPass
+    ? cleanPass === customKecPass
+    : (cleanPass === `admin${matchedKec.code}` ||
+       cleanPass === 'admin2027' ||
+       cleanPass === matchedKec.code ||
+       cleanPass === 'admin');
+
+  if (isKecPassValid) {
     return {
       success: true,
       session: {
@@ -89,6 +175,6 @@ export const authenticateUser = (
 
   return {
     success: false,
-    message: `Password tidak sesuai untuk Admin Kecamatan ${matchedKec.name}. (Gunakan: admin${matchedKec.code} atau admin2027)`,
+    message: `Password tidak sesuai untuk Admin Kecamatan ${matchedKec.name}.`,
   };
 };

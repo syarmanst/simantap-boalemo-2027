@@ -34,7 +34,8 @@ import {
   googleSignIn,
   getAccessToken,
   logoutGoogle,
-  getCurrentGoogleUser
+  getCurrentGoogleUser,
+  AUTHORIZED_DATABASE_EMAIL
 } from '../services/googleAuth';
 
 interface GoogleSheetsDatabaseModalProps {
@@ -498,39 +499,57 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold text-white">
-                        {googleUser.displayName || 'Akun Google Workspace'}
+                        {googleUser.displayName || 'Akun Google'}
                       </span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                        Terhubung
-                      </span>
+                      {googleUser.email?.toLowerCase() === AUTHORIZED_DATABASE_EMAIL.toLowerCase() ? (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-semibold border border-emerald-500/40">
+                          Akun Database Resmi
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                          Terhubung
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[11px] text-slate-400">{googleUser.email}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[11px] text-slate-300 font-mono">{googleUser.email}</span>
+                      {googleUser.email?.toLowerCase() !== AUTHORIZED_DATABASE_EMAIL.toLowerCase() && (
+                        <span className="text-[10px] text-amber-400">
+                          (Rekomendasi: {AUTHORIZED_DATABASE_EMAIL})
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </>
               ) : (
                 <div>
-                  <h3 className="text-xs font-bold text-white">Sambungkan Akun Google Workspace</h3>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <h3 className="text-xs font-bold text-white">Sambungkan Akun Google Database</h3>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">
+                      {AUTHORIZED_DATABASE_EMAIL}
+                    </span>
+                  </div>
                   <p className="text-[11px] text-slate-400">
-                    Diperlukan otorisasi Google Sheets & Drive untuk membaca serta menulis database
+                    Otorisasi akun Google resmi untuk membaca serta menulis database Google Sheets & Google Drive
                   </p>
                 </div>
               )}
             </div>
 
             {/* Official Google Sign-in / Sign-out Button */}
-            <div>
+            <div className="shrink-0">
               {googleUser && hasToken ? (
                 <button
                   onClick={handleGoogleLogout}
                   className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-colors"
                 >
-                  Keluar Akun
+                  Ganti Akun
                 </button>
               ) : (
                 <button
                   onClick={handleGoogleLogin}
                   disabled={isLoadingAuth}
-                  className="flex items-center gap-2.5 px-3.5 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-900 font-medium text-xs transition-all shadow-sm active:scale-98 disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2.5 px-3.5 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs transition-all shadow-sm active:scale-98 disabled:opacity-50 cursor-pointer"
                 >
                   {/* Official Google SVG Logo */}
                   <svg className="w-4 h-4" viewBox="0 0 48 48">
@@ -551,7 +570,7 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
                       d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
                     />
                   </svg>
-                  <span>{isLoadingAuth ? 'Menghubungkan...' : 'Masuk dengan Google'}</span>
+                  <span>{isLoadingAuth ? 'Menghubungkan...' : `Masuk (${AUTHORIZED_DATABASE_EMAIL})`}</span>
                 </button>
               )}
             </div>

@@ -13,10 +13,17 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+// Official Designated Google Account for Google Sheets Database & Google Drive
+export const AUTHORIZED_DATABASE_EMAIL = 'syarmanst@gmail.com';
+
 // Configure Google Auth Provider with Google Sheets and Google Drive file scopes
 export const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 provider.addScope('https://www.googleapis.com/auth/drive.file');
+provider.setCustomParameters({
+  login_hint: AUTHORIZED_DATABASE_EMAIL,
+  prompt: 'select_account',
+});
 
 // Flag to indicate if we are in the middle of a sign-in flow
 let isSigningIn = false;
