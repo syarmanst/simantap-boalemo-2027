@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserSession } from '../types';
 import {
   KECAMATAN_LIST_META,
   authenticateUser,
   changeAccountPassword,
-  resetPasswordToDefault
+  resetPasswordToDefault,
+  syncPasswordsFromCloud,
+  getCustomPasswords,
 } from '../data/authConfig';
 import {
   ShieldCheck,
@@ -19,10 +21,10 @@ import {
   AlertCircle,
   X,
   LogOut,
-  Sparkles,
   ArrowRight,
-  Shield,
   RotateCcw,
+  CloudCheck,
+  RefreshCw,
 } from 'lucide-react';
 
 interface LoginModalProps {
@@ -42,14 +44,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'super_admin' | 'admin_kecamatan' | 'change_password' | 'user_public'>('super_admin');
 
-  // Super Admin form state
+  // Super Admin form state (start empty or with saved custom password)
   const [superUser, setSuperUser] = useState('superadmin');
-  const [superPass, setSuperPass] = useState('superadmin2027');
+  const [superPass, setSuperPass] = useState('');
   const [showSuperPass, setShowSuperPass] = useState(false);
 
   // Admin Kecamatan form state
   const [selectedKecCode, setSelectedKecCode] = useState('750201');
-  const [kecPass, setKecPass] = useState('admin750201');
+  const [kecPass, setKecPass] = useState('');
   const [showKecPass, setShowKecPass] = useState(false);
 
   // Change Password form state
@@ -64,36 +66,102 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [changeStatus, setChangeStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSynced, setCloudSynced] = useState(false);
+
+  // When modal opens, sync latest passwords from Cloud Spreadsheet
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage(null);
+      setChangeStatus(null);
+      setIsSyncingCloud(true);
+      syncPasswordsFromCloud().then((passwords) => {
+        setIsSyncingCloud(false);
+        setCloudSynced(true);
+        // Pre-fill active custom password if user hasn't typed
+        if (!superPass) {
+          setSuperPass(passwords['superadmin'] || 'superadmin2027');
+        }
+        if (!kecPass) {
+          setKecPass(passwords[`kec_${selectedKecCode}`] || `admin${selectedKecCode}`);
+        }
+      }).catch(() => {
+        setIsSyncingCloud(false);
+      });
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSuperAdminSubmit = (e: React.FormEvent) => {
+  const handleSuperAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    const res = authenticateUser('super_admin', superUser, superPass);
+
+    // Ensure we verify against latest cloud password
+    let res = authenticateUser('super_admin', superUser, superPass);
+    if (!res.success) {
+      // Try quick resync with cloud in case password was changed on another device
+      try {
+        const cloudPasswords = await syncPasswordsFromCloud();
+        const customSuper = cloudPasswords['superadmin'];
+        if (customSuper && superPass.trim() === customSuper.trim()) {
+          res = {
+            success: true,
+            session: {
+              role: 'super_admin',
+              username: 'superadmin',
+              displayName: 'Super Admin (Kabupaten Boalemo)',
+            },
+          };
+        }
+      } catch (_) {}
+    }
+
     if (res.success && res.session) {
       onLoginSuccess(res.session);
       onClose();
     } else {
-      setErrorMessage(res.message || 'Login gagal.');
+      setErrorMessage(res.message || 'Login gagal. Periksa kembali username dan password.');
     }
   };
 
-  const handleKecamatanSubmit = (e: React.FormEvent) => {
+  const handleKecamatanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    const res = authenticateUser('admin_kecamatan', selectedKecCode, kecPass);
+
+    let res = authenticateUser('admin_kecamatan', selectedKecCode, kecPass);
+    if (!res.success) {
+      try {
+        const cloudPasswords = await syncPasswordsFromCloud();
+        const customKec = cloudPasswords[`kec_${selectedKecCode}`];
+        if (customKec && kecPass.trim() === customKec.trim()) {
+          const kecMeta = KECAMATAN_LIST_META.find((k) => k.code === selectedKecCode);
+          res = {
+            success: true,
+            session: {
+              role: 'admin_kecamatan',
+              username: selectedKecCode,
+              displayName: `Admin Kec. ${kecMeta?.name || selectedKecCode}`,
+              kecamatanCode: selectedKecCode,
+              kecamatanName: kecMeta?.name || selectedKecCode,
+            },
+          };
+        }
+      } catch (_) {}
+    }
+
     if (res.success && res.session) {
       onLoginSuccess(res.session);
       onClose();
     } else {
-      setErrorMessage(res.message || 'Login kecamatan gagal.');
+      setErrorMessage(res.message || 'Login kecamatan gagal. Periksa kembali password.');
     }
   };
 
   const handleQuickKecamatanSelect = (code: string) => {
     setSelectedKecCode(code);
-    setKecPass(`admin${code}`);
+    const passwords = getCustomPasswords();
+    setKecPass(passwords[`kec_${code}`] || `admin${code}`);
     setErrorMessage(null);
   };
 
@@ -150,9 +218,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  const handleDirectUserMode = () => {
-    onLogout();
-    onClose();
+  const handleManualSync = () => {
+    setIsSyncingCloud(true);
+    syncPasswordsFromCloud().then((passwords) => {
+      setIsSyncingCloud(false);
+      setCloudSynced(true);
+      if (activeTab === 'super_admin') {
+        setSuperPass(passwords['superadmin'] || 'superadmin2027');
+      } else if (activeTab === 'admin_kecamatan') {
+        setKecPass(passwords[`kec_${selectedKecCode}`] || `admin${selectedKecCode}`);
+      }
+    }).catch(() => {
+      setIsSyncingCloud(false);
+    });
   };
 
   return (
@@ -165,9 +243,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <Lock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm sm:text-base font-bold text-white">
-                Autentikasi & Hak Akses Pengguna
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-white">
+                  Autentikasi & Hak Akses Pengguna
+                </h3>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 font-semibold border border-emerald-800 hidden sm:inline">
+                  Multi-Perangkat
+                </span>
+              </div>
               <p className="text-[11px] text-slate-300">
                 Pemantauan Perencanaan Desa 2027 Kab. Boalemo
               </p>
@@ -208,6 +291,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </button>
           </div>
         )}
+
+        {/* Cloud Sync Status Banner */}
+        <div className="bg-slate-100 px-5 py-2 border-b border-slate-200 flex items-center justify-between text-[11px] text-slate-600">
+          <div className="flex items-center gap-1.5">
+            <CloudCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Kredensial tersinkron otomatis via Google Spreadsheet</span>
+          </div>
+          <button
+            onClick={handleManualSync}
+            disabled={isSyncingCloud}
+            className="flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-semibold cursor-pointer disabled:opacity-50"
+            title="Tarik pembaruan password dari perangkat lain"
+          >
+            <RefreshCw className={`w-3 h-3 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+            <span>{isSyncingCloud ? 'Menyinkronkan...' : 'Cek Password Terbaru'}</span>
+          </button>
+        </div>
 
         {/* Tab Navigation (4 Tabs) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-slate-200 bg-slate-50 text-xs font-semibold">
@@ -293,7 +393,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <ul className="list-disc list-inside space-y-0.5 text-[11px] text-amber-800">
                   <li>Hak penuh <strong>CRUD</strong> seluruh 82 Desa di 7 Kecamatan se-Kabupaten Boalemo.</li>
                   <li>Dapat menggunakan fitur <strong>Import Excel</strong> dan <strong>Export Excel</strong> resmi.</li>
-                  <li>Pengelolaan basis data <strong>Google Sheets & Google Drive</strong>.</li>
+                  <li>Dapat login di semua perangkat dengan password yang telah diubah sebelumnya.</li>
                 </ul>
               </div>
 
@@ -317,7 +417,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <label className="text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
                     <span className="flex items-center gap-1">
                       <Key className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Password</span>
+                      <span>Password Akun</span>
                     </span>
                   </label>
                   <div className="relative">
@@ -327,7 +427,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       onChange={(e) => setSuperPass(e.target.value)}
                       required
                       className="w-full text-xs px-3 py-2 pr-9 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                      placeholder="••••••••"
+                      placeholder="Masukkan password Anda"
                     />
                     <button
                       type="button"
@@ -341,17 +441,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </div>
 
                 <div className="pt-2 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSuperUser('superadmin');
-                      setSuperPass('superadmin2027');
-                      setErrorMessage(null);
-                    }}
-                    className="text-[11px] text-slate-500 hover:text-emerald-700 underline cursor-pointer"
-                  >
-                    Gunakan Akun Bawaan (superadmin)
-                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    Bisa login di HP/Laptop mana saja dengan password terbaru Anda.
+                  </span>
 
                   <button
                     type="submit"
@@ -376,7 +468,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <ul className="list-disc list-inside space-y-0.5 text-[11px] text-sky-800">
                   <li>Login menggunakan <strong>Kode Kecamatan</strong> resmi (6 digit wilayah).</li>
                   <li>Hak <strong>input & pemantauan</strong> berlaku untuk desa-desa di kecamatannya.</li>
-                  <li>Gunakan tombol mata untuk melihat atau memeriksa password yang dimasukkan.</li>
+                  <li>Password yang telah diubah dapat digunakan di perangkat mana pun.</li>
                 </ul>
               </div>
 
@@ -439,7 +531,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         value={kecPass}
                         onChange={(e) => setKecPass(e.target.value)}
                         required
-                        placeholder="admin + kode"
+                        placeholder="Masukkan password kecamatan"
                         className="w-full text-xs px-3 py-2 pr-9 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                       />
                       <button
@@ -456,7 +548,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
                 <div className="pt-2 flex items-center justify-between gap-2">
                   <span className="text-[11px] text-slate-400">
-                    Format: kode 6 digit (contoh: 750201 / admin750201)
+                    Format: kode 6 digit (contoh: 750201)
                   </span>
 
                   <button
@@ -477,35 +569,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-950">
                 <div className="flex items-center gap-2 font-bold text-amber-900 mb-1">
                   <KeyRound className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>Fitur Ubah Password Akun Petugas</span>
+                  <span>Fitur Ubah Password Akun Petugas (Tersinkron Multi-Perangkat)</span>
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  Silakan pilih akun yang ingin diubah kata sandinya, masukkan password saat ini, serta password baru. Password baru akan tersimpan aman di browser Anda.
+                  Password yang diubah di sini otomatis tersimpan di Cloud Google Spreadsheet. Anda dan rekan kerja dapat login di semua perangkat, laptop, atau ponsel menggunakan password baru tersebut.
                 </p>
               </div>
 
               {changeStatus && (
                 <div
-                  className={`p-3 rounded-xl flex items-start gap-2 text-xs animate-fade-in ${
+                  className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
                     changeStatus.type === 'success'
-                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                      : 'bg-rose-50 border border-rose-200 text-rose-800'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
                   }`}
                 >
                   {changeStatus.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                   )}
                   <span>{changeStatus.text}</span>
                 </div>
               )}
 
-              <form onSubmit={handleChangePasswordSubmit} className="space-y-3">
-                {/* Account Type Selection */}
+              <form onSubmit={handleChangePasswordSubmit} className="space-y-3.5">
+                {/* Target Akun */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Pilih Akun yang Ingin Diubah Passwordnya:
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Pilih Jenis Akun yang Ingin Diubah Passwordnya:
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -514,13 +606,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         setChangeRole('super_admin');
                         setChangeStatus(null);
                       }}
-                      className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                         changeRole === 'super_admin'
-                          ? 'bg-amber-500/15 border-amber-500 text-amber-950 ring-1 ring-amber-400'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      <ShieldCheck className="w-4 h-4 text-amber-600" />
+                      <ShieldCheck className="w-4 h-4 shrink-0" />
                       <span>Super Admin</span>
                     </button>
 
@@ -530,13 +622,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         setChangeRole('admin_kecamatan');
                         setChangeStatus(null);
                       }}
-                      className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                         changeRole === 'admin_kecamatan'
-                          ? 'bg-sky-500/15 border-sky-500 text-sky-950 ring-1 ring-sky-400'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      <Building2 className="w-4 h-4 text-sky-600" />
+                      <Building2 className="w-4 h-4 shrink-0" />
                       <span>Admin Kecamatan</span>
                     </button>
                   </div>
@@ -673,24 +765,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <span>Akses Pengunjung Publik (Tanpa Login)</span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Sesuai ketentuan, <strong>User publik dapat langsung melihat seluruh data pemantauan perencanaan desa tanpa harus login</strong>.
+                  Secara default, seluruh pengunjung publik, aparatur desa, dan pimpinan daerah dapat langsung meninjau seluruh data rekapitulasi, dashboard statistik, dan tabel perencanaan 82 desa di 7 kecamatan tanpa memerlukan password.
                 </p>
-                <div className="space-y-1 text-[11px] text-slate-500 pt-1">
-                  <p>✓ Meninjau Dashboard Statistik Real-time 82 Desa Boalemo.</p>
-                  <p>✓ Menelusuri seluruh tahapan siklus per desa (Modul 1 s/d 8).</p>
-                  <p>✓ Membuka dan mengunduh foto dokumentasi dan berkas bukti.</p>
-                  <p>✗ Seluruh formulir input terkunci aman (*read-only*).</p>
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-lg text-[11px] text-emerald-900">
+                  Fitur edit formulir dan input data hanya dapat dilakukan jika Anda masuk sebagai Super Admin atau Admin Kecamatan.
                 </div>
               </div>
 
-              <div className="pt-2 flex justify-end">
+              <div className="flex justify-end pt-2">
                 <button
                   type="button"
-                  onClick={handleDirectUserMode}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+                  onClick={() => {
+                    onLogout();
+                    onClose();
+                  }}
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  <Eye className="w-4 h-4 text-emerald-400" />
-                  <span>Lanjutkan Sebagai Pengunjung Publik</span>
+                  Gunakan Mode Peninjau (Viewer)
                 </button>
               </div>
             </div>
@@ -698,11 +789,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-          <span className="text-[11px]">Sistem Pemantauan Perencanaan Desa Kab. Boalemo</span>
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-[11px] text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Sistem Keamanan Akun Terintegrasi Cloud</span>
+          </span>
           <button
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 font-medium cursor-pointer"
+            className="px-3.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
           >
             Tutup
           </button>

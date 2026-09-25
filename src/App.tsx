@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { VillagePlanRecord, ModuleKey, UserSession } from './types';
 import { getInitialVillages } from './data/initialData';
-import { DEFAULT_VIEWER_SESSION } from './data/authConfig';
+import { DEFAULT_VIEWER_SESSION, syncPasswordsFromCloud } from './data/authConfig';
 import { Header } from './components/Header';
 import { GoogleSheetsBar } from './components/GoogleSheetsBar';
 import { GoogleSheetsDatabaseModal } from './components/GoogleSheetsDatabaseModal';
@@ -93,8 +93,10 @@ export default function App() {
   const [isAddVillageModalOpen, setIsAddVillageModalOpen] = useState(false);
   const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
 
-  // Initialize Google Auth state listener on app load
+  // Initialize Google Auth state listener and sync cloud passwords on app load
   useEffect(() => {
+    syncPasswordsFromCloud().catch(() => {});
+
     const unsubscribe = initGoogleAuth(
       (user, token) => {
         console.log('Google Auth connected:', user.email);

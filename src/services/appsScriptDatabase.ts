@@ -1,5 +1,5 @@
 /**
- * GOOGLE APPS SCRIPT WEB APP ENDPOINT
+ * GOOGLE APPS SCRIPT WEB APP ENDPOINT & CLOUD SYNC
  * 
  * Skrip ini dipasang langsung pada Google Spreadsheet ID:
  * 1ETuI256p8T5x-4WFVHB-FKonUkY8di9DroLkpAndF1w
@@ -10,6 +10,7 @@
  * 2. Tidak memerlukan popup login Google di browser pengunjung/petugas.
  * 3. Siap 100% dideploy di Vercel secara serverless/statik.
  * 4. Mendukung sinkronisasi tarik data (read) dan simpan data (write/update).
+ * 5. Mendukung sinkronisasi akun & password multi-perangkat via sheet KREDENSIAL_AKUN.
  */
 
 import { VillagePlanRecord } from '../types';
@@ -153,7 +154,89 @@ export const updateVillageViaAppsScript = async (
 };
 
 /**
- * Template Kode Google Apps Script siap copy-paste
+ * Tarik seluruh password tersimpan dari Google Spreadsheet (Sheet: KREDENSIAL_AKUN)
+ * Memungkinkan login multi-perangkat menggunakan password yang telah diubah
+ */
+export const fetchCloudPasswords = async (
+  scriptUrl: string = DEFAULT_APPS_SCRIPT_URL
+): Promise<Record<string, string>> => {
+  const urlToUse = (scriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+  if (!urlToUse) return {};
+
+  try {
+    const endpoint = `${urlToUse}?action=getPasswords&sheet=KREDENSIAL_AKUN&t=${Date.now()}`;
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!res.ok) return {};
+    const json = await res.json().catch(() => null);
+    if (!json || json.status === 'error') return {};
+
+    // Expecting json.passwords as { "superadmin": "...", "kec_750201": "..." }
+    // Or if returning rows: [[key, pass], ...]
+    if (json.passwords && typeof json.passwords === 'object') {
+      return json.passwords;
+    }
+
+    if (Array.isArray(json.values)) {
+      const passMap: Record<string, string> = {};
+      for (const row of json.values) {
+        if (Array.isArray(row) && row.length >= 2) {
+          const k = String(row[0]).trim();
+          const p = String(row[1]).trim();
+          if (k && p && k !== 'account_key' && k !== 'AccountKey') {
+            passMap[k] = p;
+          }
+        }
+      }
+      return passMap;
+    }
+
+    return {};
+  } catch (err) {
+    console.warn('Gagal memuat kredensial dari cloud:', err);
+    return {};
+  }
+};
+
+/**
+ * Simpan password yang baru diubah ke Google Spreadsheet (Sheet: KREDENSIAL_AKUN)
+ */
+export const saveCloudPassword = async (
+  accountKey: string,
+  newPass: string,
+  scriptUrl: string = DEFAULT_APPS_SCRIPT_URL
+): Promise<boolean> => {
+  const urlToUse = (scriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+  if (!urlToUse) return false;
+
+  try {
+    const payload = {
+      action: 'savePassword',
+      sheetName: 'KREDENSIAL_AKUN',
+      accountKey,
+      newPass,
+    };
+
+    const res = await fetch(urlToUse, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.warn('Gagal menyimpan password ke cloud Apps Script:', err);
+    return false;
+  }
+};
+
+/**
+ * Template Kode Google Apps Script siap copy-paste (Mendukung Data Desa + Kredensial Akun Multi-Perangkat)
  */
 export const APPS_SCRIPT_SAMPLE_CODE = `// ===============================================================
 // KODE GOOGLE APPS SCRIPT DATABASE PERENCANAAN DESA BOALEMO 2027
@@ -164,10 +247,33 @@ export const APPS_SCRIPT_SAMPLE_CODE = `// =====================================
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || 'getData';
   var sheetName = (e && e.parameter && e.parameter.sheet) || 'DATA_DESA';
-  
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Ambil data Kredensial / Password multi-perangkat
+  if (action === 'getPasswords') {
+    var credSheet = ss.getSheetByName('KREDENSIAL_AKUN');
+    if (!credSheet) {
+      return createJsonResponse({
+        status: 'success',
+        passwords: {}
+      });
+    }
+    var credValues = credSheet.getDataRange().getValues();
+    var passwords = {};
+    for (var i = 1; i < credValues.length; i++) {
+      var row = credValues[i];
+      if (row[0] && row[1]) {
+        passwords[String(row[0]).trim()] = String(row[1]).trim();
+      }
+    }
+    return createJsonResponse({
+      status: 'success',
+      passwords: passwords
+    });
+  }
+
+  // 2. Ambil data Desa (DATA_DESA)
   var sheet = ss.getSheetByName(sheetName);
-  
   if (!sheet) {
     return createJsonResponse({
       status: 'error',
@@ -188,10 +294,47 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
     var action = data.action;
-    var sheetName = data.sheetName || 'DATA_DESA';
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Simpan Password Akun (Multi-Perangkat)
+    if (action === 'savePassword') {
+      var accountKey = String(data.accountKey || '').trim();
+      var newPass = String(data.newPass || '').trim();
+      if (!accountKey || !newPass) {
+        return createJsonResponse({ status: 'error', message: 'Data akun tidak lengkap.' });
+      }
+
+      var credSheet = ss.getSheetByName('KREDENSIAL_AKUN');
+      if (!credSheet) {
+        credSheet = ss.insertSheet('KREDENSIAL_AKUN');
+        credSheet.getRange(1, 1, 1, 3).setValues([['account_key', 'password', 'updated_at']]);
+      }
+
+      var credData = credSheet.getDataRange().getValues();
+      var foundRow = -1;
+      for (var c = 1; c < credData.length; c++) {
+        if (String(credData[c][0]).trim() === accountKey) {
+          foundRow = c + 1;
+          break;
+        }
+      }
+
+      var nowStr = new Date().toLocaleString('id-ID');
+      if (foundRow > 0) {
+        credSheet.getRange(foundRow, 2, 1, 2).setValues([[newPass, nowStr]]);
+      } else {
+        credSheet.appendRow([accountKey, newPass, nowStr]);
+      }
+
+      return createJsonResponse({
+        status: 'success',
+        message: 'Password akun ' + accountKey + ' berhasil disimpan di Cloud Spreadsheet.'
+      });
+    }
+
+    // 2. Simpan Seluruh Desa (DATA_DESA)
+    var sheetName = data.sheetName || 'DATA_DESA';
     var sheet = ss.getSheetByName(sheetName);
-    
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
     }
@@ -206,7 +349,6 @@ function doPost(e) {
       var numRows = rows.length;
       var numCols = rows[0].length;
       
-      // Pastikan dimensi kolom & baris mencukupi
       if (sheet.getMaxRows() < numRows) {
         sheet.insertRowsAfter(sheet.getMaxRows(), numRows - sheet.getMaxRows() + 10);
       }
@@ -217,7 +359,6 @@ function doPost(e) {
       var range = sheet.getRange(1, 1, numRows, numCols);
       range.setValues(rows);
       
-      // Update metadata sheet INFO_DATABASE jika ada
       try {
         var infoSheet = ss.getSheetByName('INFO_DATABASE') || ss.insertSheet('INFO_DATABASE');
         infoSheet.getRange(1, 1, 3, 2).setValues([
@@ -233,11 +374,11 @@ function doPost(e) {
       });
     }
     
+    // 3. Update 1 Desa Real-time
     if (action === 'updateVillage') {
       var idDesa = data.idDesa;
       var rowValues = data.rowValues;
       
-      // Cari kolom H (kolom ke-8: IdDesa)
       var idColValues = sheet.getRange("H:H").getValues();
       var targetRow = -1;
       

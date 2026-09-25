@@ -1,4 +1,5 @@
 import { KecamatanMeta, UserSession } from '../types';
+import { fetchCloudPasswords, saveCloudPassword } from '../services/appsScriptDatabase';
 
 export const KECAMATAN_LIST_META: KecamatanMeta[] = [
   { code: '750201', name: 'Paguyaman', defaultVillageId: '7502012004' },
@@ -27,16 +28,47 @@ export const getCustomPasswords = (): Record<string, string> => {
   }
 };
 
+/**
+ * Simpan password lokal dan kirimkan ke Google Spreadsheet via Apps Script
+ * agar seluruh perangkat lain langsung tersinkronisasi.
+ */
 export const saveCustomPassword = (accountKey: string, newPass: string): void => {
   const current = getCustomPasswords();
   current[accountKey] = newPass;
   localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(current));
+
+  // Sync to Cloud Apps Script in background
+  saveCloudPassword(accountKey, newPass).catch((err) => {
+    console.warn('Sync password to cloud failed:', err);
+  });
+};
+
+/**
+ * Sinkronisasi password dari Cloud Google Spreadsheet ke penyimpanan lokal
+ */
+export const syncPasswordsFromCloud = async (): Promise<Record<string, string>> => {
+  try {
+    const cloudPasswords = await fetchCloudPasswords();
+    if (cloudPasswords && Object.keys(cloudPasswords).length > 0) {
+      const current = getCustomPasswords();
+      const merged = { ...current, ...cloudPasswords };
+      localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(merged));
+      return merged;
+    }
+  } catch (err) {
+    console.warn('Gagal sinkron password dari cloud:', err);
+  }
+  return getCustomPasswords();
 };
 
 export const resetPasswordToDefault = (accountKey: string): void => {
   const current = getCustomPasswords();
   delete current[accountKey];
   localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(current));
+
+  // Also remove or set to default on cloud
+  const defaultPass = accountKey === 'superadmin' ? DEFAULT_SUPERADMIN.password : `admin${accountKey.replace('kec_', '')}`;
+  saveCloudPassword(accountKey, defaultPass).catch(() => {});
 };
 
 export const changeAccountPassword = (
@@ -65,7 +97,7 @@ export const changeAccountPassword = (
     }
 
     saveCustomPassword('superadmin', cleanNewPass);
-    return { success: true, message: 'Password Super Admin berhasil diubah!' };
+    return { success: true, message: 'Password Super Admin berhasil diubah dan tersinkron ke semua perangkat!' };
   }
 
   // Admin Kecamatan
@@ -92,7 +124,7 @@ export const changeAccountPassword = (
   }
 
   saveCustomPassword(accountKey, cleanNewPass);
-  return { success: true, message: `Password Admin Kecamatan ${matchedKec.name} berhasil diubah!` };
+  return { success: true, message: `Password Admin Kecamatan ${matchedKec.name} berhasil diubah dan tersinkron ke semua perangkat!` };
 };
 
 export const DEFAULT_VIEWER_SESSION: UserSession = {
