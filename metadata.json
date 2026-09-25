@@ -1,0 +1,6 @@
+{
+  "name": "Pemantauan Perencanaan Desa 2027 Kab. Boalemo",
+  "description": "Aplikasi responsif mobile-friendly pemantauan perencanaan desa 2027 Kabupaten Boalemo dengan navigasi modul data, dashboard real-time, dan manajemen Excel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
