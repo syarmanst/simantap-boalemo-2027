@@ -20,9 +20,9 @@ export const AUTHORIZED_DATABASE_EMAIL = 'syarmanst@gmail.com';
 export const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 provider.addScope('https://www.googleapis.com/auth/drive.file');
+// Lock login hint to syarmanst@gmail.com without prompting to select or change accounts
 provider.setCustomParameters({
   login_hint: AUTHORIZED_DATABASE_EMAIL,
-  prompt: 'select_account',
 });
 
 // Flag to indicate if we are in the middle of a sign-in flow

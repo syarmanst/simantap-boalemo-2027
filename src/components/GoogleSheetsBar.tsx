@@ -9,7 +9,8 @@ import {
   CloudCheck,
   Cloud
 } from 'lucide-react';
-import { GoogleSheetsConfig, fetchVillagesFromSheets } from '../services/googleSheetsDatabase';
+import { GoogleSheetsConfig, fetchVillagesFromSheets, DESIGNATED_SPREADSHEET_ID, DESIGNATED_SHEET_NAME } from '../services/googleSheetsDatabase';
+import { getAppsScriptUrl, fetchFromAppsScript } from '../services/appsScriptDatabase';
 import { getAccessToken } from '../services/googleAuth';
 import { VillagePlanRecord } from '../types';
 
@@ -33,6 +34,38 @@ export const GoogleSheetsBar: React.FC<GoogleSheetsBarProps> = ({
 
   const handleQuickSync = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const scriptUrl = getAppsScriptUrl();
+
+    if (scriptUrl) {
+      setIsQuickSyncing(true);
+      setSyncFeedback('Menyinkronkan...');
+      try {
+        const result = await fetchFromAppsScript(scriptUrl, villages);
+        onApplyVillages(result.villages);
+        const updatedConfig: GoogleSheetsConfig = {
+          ...(sheetsConfig || {
+            spreadsheetId: DESIGNATED_SPREADSHEET_ID,
+            spreadsheetTitle: 'Database Perencanaan Desa Boalemo 2027',
+            spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${DESIGNATED_SPREADSHEET_ID}/edit`,
+            sheetName: DESIGNATED_SHEET_NAME,
+            autoSync: true,
+          }),
+          lastSyncTime: new Date().toLocaleString('id-ID'),
+          lastSyncAction: 'pull',
+          lastSyncStatus: 'success',
+        };
+        onUpdateConfig(updatedConfig);
+        setSyncFeedback('Data tersinkron!');
+        setTimeout(() => setSyncFeedback(null), 3000);
+      } catch (err: any) {
+        setSyncFeedback('Gagal sinkron');
+        setTimeout(() => setSyncFeedback(null), 3000);
+      } finally {
+        setIsQuickSyncing(false);
+      }
+      return;
+    }
+
     if (!sheetsConfig) {
       onOpenModal();
       return;

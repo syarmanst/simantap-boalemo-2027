@@ -23,8 +23,12 @@ import { exportToExcel } from './utils/excelHandler';
 import {
   GoogleSheetsConfig,
   SHEETS_CONFIG_KEY,
-  updateSingleVillageInSheets
+  updateSingleVillageInSheets,
+  getDefaultDatabaseConfig,
+  DESIGNATED_SPREADSHEET_ID,
+  DESIGNATED_SPREADSHEET_URL
 } from './services/googleSheetsDatabase';
+import { getAppsScriptUrl, updateVillageViaAppsScript } from './services/appsScriptDatabase';
 import { initGoogleAuth, getAccessToken } from './services/googleAuth';
 
 const STORAGE_KEY = 'boalemo_perencanaan_desa_2027';
@@ -60,17 +64,24 @@ export default function App() {
     return DEFAULT_VIEWER_SESSION;
   });
 
-  // Google Sheets Database configuration
+  // Google Sheets Database configuration (Permanently locked to designated official database: 1ETuI256p8T5x-4WFVHB-FKonUkY8di9DroLkpAndF1w)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig | null>(() => {
+    const defaultConfig = getDefaultDatabaseConfig();
     try {
       const saved = localStorage.getItem(SHEETS_CONFIG_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          ...defaultConfig,
+          ...parsed,
+          spreadsheetId: DESIGNATED_SPREADSHEET_ID,
+          spreadsheetUrl: DESIGNATED_SPREADSHEET_URL,
+        };
       }
     } catch (e) {
       console.error('Failed to load Google Sheets config:', e);
     }
-    return null;
+    return defaultConfig;
   });
 
   const [activeView, setActiveView] = useState<'dashboard' | 'input' | 'table' | 'district'>('dashboard');
@@ -122,31 +133,52 @@ export default function App() {
 
     // If auto sync is enabled with Google Sheets, push update in background
     if (sheetsConfig?.autoSync) {
-      getAccessToken().then((token) => {
-        if (token && sheetsConfig) {
-          updateSingleVillageInSheets(
-            token,
-            sheetsConfig.spreadsheetId,
-            sheetsConfig.sheetName,
-            updatedVillage
-          ).then((ok) => {
-            if (ok) {
-              setSheetsConfig((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      lastSyncTime: new Date().toLocaleString('id-ID'),
-                      lastSyncAction: 'auto',
-                      lastSyncStatus: 'success',
-                    }
-                  : null
-              );
-            }
-          }).catch((err) => {
-            console.warn('Background auto sync to Google Sheets error:', err);
-          });
-        }
-      });
+      const scriptUrl = getAppsScriptUrl();
+      if (scriptUrl) {
+        updateVillageViaAppsScript(scriptUrl, updatedVillage).then((ok) => {
+          if (ok) {
+            setSheetsConfig((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    lastSyncTime: new Date().toLocaleString('id-ID'),
+                    lastSyncAction: 'auto',
+                    lastSyncStatus: 'success',
+                  }
+                : null
+            );
+          }
+        }).catch((err) => {
+          console.warn('Background auto sync to Google Apps Script error:', err);
+        });
+      } else {
+        // Fallback to direct token if configured
+        getAccessToken().then((token) => {
+          if (token && sheetsConfig) {
+            updateSingleVillageInSheets(
+              token,
+              sheetsConfig.spreadsheetId,
+              sheetsConfig.sheetName,
+              updatedVillage
+            ).then((ok) => {
+              if (ok) {
+                setSheetsConfig((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        lastSyncTime: new Date().toLocaleString('id-ID'),
+                        lastSyncAction: 'auto',
+                        lastSyncStatus: 'success',
+                      }
+                    : null
+                );
+              }
+            }).catch((err) => {
+              console.warn('Background auto sync to Google Sheets error:', err);
+            });
+          }
+        });
+      }
     }
   };
 

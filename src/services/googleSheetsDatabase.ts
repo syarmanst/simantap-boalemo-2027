@@ -15,6 +15,21 @@ export interface GoogleSheetsConfig {
 
 export const SHEETS_CONFIG_KEY = 'boalemo_google_sheets_config';
 
+// Permanent Official Google Spreadsheet Database for Boalemo
+export const DESIGNATED_SPREADSHEET_ID = '1ETuI256p8T5x-4WFVHB-FKonUkY8di9DroLkpAndF1w';
+export const DESIGNATED_SPREADSHEET_URL = `https://docs.google.com/spreadsheets/d/${DESIGNATED_SPREADSHEET_ID}/edit`;
+export const DESIGNATED_SHEET_NAME = 'DATA_DESA';
+export const DESIGNATED_SPREADSHEET_TITLE = 'Database Perencanaan Desa Boalemo 2027';
+
+export const getDefaultDatabaseConfig = (): GoogleSheetsConfig => ({
+  spreadsheetId: DESIGNATED_SPREADSHEET_ID,
+  spreadsheetTitle: DESIGNATED_SPREADSHEET_TITLE,
+  spreadsheetUrl: DESIGNATED_SPREADSHEET_URL,
+  sheetName: DESIGNATED_SHEET_NAME,
+  autoSync: true,
+  lastSyncStatus: 'success',
+});
+
 /**
  * Convert 1-indexed column number to Excel/Sheets column letters (1 -> A, 26 -> Z, 27 -> AA, 105 -> DA, 107 -> DC)
  */
