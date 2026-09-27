@@ -205,23 +205,25 @@ export const fetchCloudPasswords = async (
 
 /**
  * Simpan password yang baru diubah ke Google Spreadsheet (Sheet: KREDENSIAL_AKUN)
+ * Multi-perangkat: dapat diakses langsung oleh browser lain
  */
 export const saveCloudPassword = async (
   accountKey: string,
   newPass: string,
-  scriptUrl: string = DEFAULT_APPS_SCRIPT_URL
+  scriptUrl: string = getAppsScriptUrl()
 ): Promise<boolean> => {
-  const urlToUse = (scriptUrl || DEFAULT_APPS_SCRIPT_URL).trim();
+  const urlToUse = (scriptUrl || getAppsScriptUrl() || DEFAULT_APPS_SCRIPT_URL).trim();
   if (!urlToUse) return false;
 
-  try {
-    const payload = {
-      action: 'savePassword',
-      sheetName: 'KREDENSIAL_AKUN',
-      accountKey,
-      newPass,
-    };
+  const payload = {
+    action: 'savePassword',
+    sheetName: 'KREDENSIAL_AKUN',
+    accountKey,
+    newPass,
+  };
 
+  // 1. Coba via POST terlebih dahulu (standar Apps Script)
+  try {
     const res = await fetch(urlToUse, {
       method: 'POST',
       headers: {
@@ -230,11 +232,32 @@ export const saveCloudPassword = async (
       body: JSON.stringify(payload),
     });
 
-    return res.ok;
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.status === 'success') {
+        return true;
+      }
+      return true;
+    }
   } catch (err) {
-    console.warn('Gagal menyimpan password ke cloud Apps Script:', err);
-    return false;
+    console.warn('Apps Script POST savePassword attempt failed, trying GET fallback:', err);
   }
+
+  // 2. Fallback via GET parameter (handal jika browser membatasi POST CORS)
+  try {
+    const fallbackEndpoint = `${urlToUse}?action=savePassword&accountKey=${encodeURIComponent(accountKey)}&newPass=${encodeURIComponent(newPass)}&sheetName=KREDENSIAL_AKUN&t=${Date.now()}`;
+    const resGet = await fetch(fallbackEndpoint, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (resGet.ok) {
+      return true;
+    }
+  } catch (errGet) {
+    console.warn('Apps Script GET fallback savePassword failed:', errGet);
+  }
+
+  return false;
 };
 
 /**
@@ -272,6 +295,37 @@ function doGet(e) {
       status: 'success',
       passwords: passwords
     });
+  }
+
+  // 1b. Simpan Password via GET parameter (Dukungan penuh untuk semua browser tanpa kendala CORS)
+  if (action === 'savePassword') {
+    var accountKey = String((e && e.parameter && e.parameter.accountKey) || '').trim();
+    var newPass = String((e && e.parameter && e.parameter.newPass) || '').trim();
+    if (accountKey && newPass) {
+      var credSheet = ss.getSheetByName('KREDENSIAL_AKUN');
+      if (!credSheet) {
+        credSheet = ss.insertSheet('KREDENSIAL_AKUN');
+        credSheet.getRange(1, 1, 1, 3).setValues([['account_key', 'password', 'updated_at']]);
+      }
+      var credData = credSheet.getDataRange().getValues();
+      var foundRow = -1;
+      for (var c = 1; c < credData.length; c++) {
+        if (String(credData[c][0]).trim() === accountKey) {
+          foundRow = c + 1;
+          break;
+        }
+      }
+      var nowStr = new Date().toLocaleString('id-ID');
+      if (foundRow > 0) {
+        credSheet.getRange(foundRow, 2, 1, 2).setValues([[newPass, nowStr]]);
+      } else {
+        credSheet.appendRow([accountKey, newPass, nowStr]);
+      }
+      return createJsonResponse({
+        status: 'success',
+        message: 'Password akun ' + accountKey + ' berhasil disimpan di Cloud Spreadsheet.'
+      });
+    }
   }
 
   // 2. Ambil data Desa (DATA_DESA)

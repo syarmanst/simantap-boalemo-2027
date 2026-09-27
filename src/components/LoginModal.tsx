@@ -3,8 +3,11 @@ import { UserSession } from '../types';
 import {
   KECAMATAN_LIST_META,
   authenticateUser,
+  authenticateUserAsync,
   changeAccountPassword,
+  changeAccountPasswordAsync,
   resetPasswordToDefault,
+  resetPasswordToDefaultAsync,
   syncPasswordsFromCloud,
   getCustomPasswords,
 } from '../data/authConfig';
@@ -25,6 +28,7 @@ import {
   RotateCcw,
   CloudCheck,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 
 interface LoginModalProps {
@@ -44,7 +48,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'super_admin' | 'admin_kecamatan' | 'change_password' | 'user_public'>('super_admin');
 
-  // Super Admin form state (start empty or with saved custom password)
+  // Super Admin form state
   const [superUser, setSuperUser] = useState('superadmin');
   const [superPass, setSuperPass] = useState('');
   const [showSuperPass, setShowSuperPass] = useState(false);
@@ -68,6 +72,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(false);
+  const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   // When modal opens, sync latest passwords from Cloud Spreadsheet
   useEffect(() => {
@@ -75,16 +81,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setErrorMessage(null);
       setChangeStatus(null);
       setIsSyncingCloud(true);
-      syncPasswordsFromCloud().then((passwords) => {
+      syncPasswordsFromCloud().then(() => {
         setIsSyncingCloud(false);
         setCloudSynced(true);
-        // Pre-fill active custom password if user hasn't typed
-        if (!superPass) {
-          setSuperPass(passwords['superadmin'] || 'superadmin2027');
-        }
-        if (!kecPass) {
-          setKecPass(passwords[`kec_${selectedKecCode}`] || `admin${selectedKecCode}`);
-        }
       }).catch(() => {
         setIsSyncingCloud(false);
       });
@@ -96,76 +95,51 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const handleSuperAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setIsSubmittingLogin(true);
 
-    // Ensure we verify against latest cloud password
-    let res = authenticateUser('super_admin', superUser, superPass);
-    if (!res.success) {
-      // Try quick resync with cloud in case password was changed on another device
-      try {
-        const cloudPasswords = await syncPasswordsFromCloud();
-        const customSuper = cloudPasswords['superadmin'];
-        if (customSuper && superPass.trim() === customSuper.trim()) {
-          res = {
-            success: true,
-            session: {
-              role: 'super_admin',
-              username: 'superadmin',
-              displayName: 'Super Admin (Kabupaten Boalemo)',
-            },
-          };
-        }
-      } catch (_) {}
-    }
-
-    if (res.success && res.session) {
-      onLoginSuccess(res.session);
-      onClose();
-    } else {
-      setErrorMessage(res.message || 'Login gagal. Periksa kembali username dan password.');
+    try {
+      // Verifikasi langsung ke Google Spreadsheet jika berbeda browser
+      const res = await authenticateUserAsync('super_admin', superUser, superPass);
+      if (res.success && res.session) {
+        onLoginSuccess(res.session);
+        onClose();
+      } else {
+        setErrorMessage(res.message || 'Login gagal. Periksa kembali username dan password.');
+      }
+    } catch (_) {
+      setErrorMessage('Terjadi kendala saat memeriksa password ke database.');
+    } finally {
+      setIsSubmittingLogin(false);
     }
   };
 
   const handleKecamatanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setIsSubmittingLogin(true);
 
-    let res = authenticateUser('admin_kecamatan', selectedKecCode, kecPass);
-    if (!res.success) {
-      try {
-        const cloudPasswords = await syncPasswordsFromCloud();
-        const customKec = cloudPasswords[`kec_${selectedKecCode}`];
-        if (customKec && kecPass.trim() === customKec.trim()) {
-          const kecMeta = KECAMATAN_LIST_META.find((k) => k.code === selectedKecCode);
-          res = {
-            success: true,
-            session: {
-              role: 'admin_kecamatan',
-              username: selectedKecCode,
-              displayName: `Admin Kec. ${kecMeta?.name || selectedKecCode}`,
-              kecamatanCode: selectedKecCode,
-              kecamatanName: kecMeta?.name || selectedKecCode,
-            },
-          };
-        }
-      } catch (_) {}
-    }
-
-    if (res.success && res.session) {
-      onLoginSuccess(res.session);
-      onClose();
-    } else {
-      setErrorMessage(res.message || 'Login kecamatan gagal. Periksa kembali password.');
+    try {
+      // Verifikasi langsung ke Google Spreadsheet jika berbeda browser
+      const res = await authenticateUserAsync('admin_kecamatan', selectedKecCode, kecPass);
+      if (res.success && res.session) {
+        onLoginSuccess(res.session);
+        onClose();
+      } else {
+        setErrorMessage(res.message || 'Login kecamatan gagal. Periksa kembali password.');
+      }
+    } catch (_) {
+      setErrorMessage('Terjadi kendala saat memeriksa password ke database.');
+    } finally {
+      setIsSubmittingLogin(false);
     }
   };
 
   const handleQuickKecamatanSelect = (code: string) => {
     setSelectedKecCode(code);
-    const passwords = getCustomPasswords();
-    setKecPass(passwords[`kec_${code}`] || `admin${code}`);
     setErrorMessage(null);
   };
 
-  const handleChangePasswordSubmit = (e: React.FormEvent) => {
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setChangeStatus(null);
 
@@ -182,39 +156,54 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    const targetId = changeRole === 'super_admin' ? 'superadmin' : changeKecCode;
-    const res = changeAccountPassword(changeRole, targetId, oldPass, newPass);
+    setIsSavingPassword(true);
+    try {
+      const targetId = changeRole === 'super_admin' ? 'superadmin' : changeKecCode;
+      const res = await changeAccountPasswordAsync(changeRole, targetId, oldPass, newPass);
 
-    if (res.success) {
-      setChangeStatus({ type: 'success', text: res.message });
-      setOldPass('');
-      setNewPass('');
-      setConfirmPass('');
-      if (changeRole === 'super_admin') {
-        setSuperPass(newPass);
-      } else if (changeKecCode === selectedKecCode) {
-        setKecPass(newPass);
+      if (res.success) {
+        setChangeStatus({ type: 'success', text: res.message });
+        setOldPass('');
+        setNewPass('');
+        setConfirmPass('');
+        if (changeRole === 'super_admin') {
+          setSuperPass(newPass);
+        } else if (changeKecCode === selectedKecCode) {
+          setKecPass(newPass);
+        }
+      } else {
+        setChangeStatus({ type: 'error', text: res.message });
       }
-    } else {
-      setChangeStatus({ type: 'error', text: res.message });
+    } catch (_) {
+      setChangeStatus({ type: 'error', text: 'Terjadi kendala saat menyimpan password ke Google Spreadsheet.' });
+    } finally {
+      setIsSavingPassword(false);
     }
   };
 
-  const handleResetPassword = () => {
+  const handleResetPassword = async () => {
     const targetKey = changeRole === 'super_admin' ? 'superadmin' : `kec_${changeKecCode}`;
     const accountName =
       changeRole === 'super_admin'
         ? 'Super Admin'
         : `Admin Kec. ${KECAMATAN_LIST_META.find((k) => k.code === changeKecCode)?.name || changeKecCode}`;
-    resetPasswordToDefault(targetKey);
-    setChangeStatus({
-      type: 'success',
-      text: `Password untuk ${accountName} berhasil dikembalikan ke bawaan sistem.`,
-    });
-    if (changeRole === 'super_admin') {
-      setSuperPass('superadmin2027');
-    } else if (changeKecCode === selectedKecCode) {
-      setKecPass(`admin${changeKecCode}`);
+
+    setIsSavingPassword(true);
+    try {
+      await resetPasswordToDefaultAsync(targetKey);
+      setChangeStatus({
+        type: 'success',
+        text: `Password untuk ${accountName} berhasil dikembalikan ke bawaan dan disimpan di Google Spreadsheet.`,
+      });
+      if (changeRole === 'super_admin') {
+        setSuperPass('superadmin2027');
+      } else if (changeKecCode === selectedKecCode) {
+        setKecPass(`admin${changeKecCode}`);
+      }
+    } catch (_) {
+      setChangeStatus({ type: 'error', text: 'Gagal mengembalikan password ke bawaan.' });
+    } finally {
+      setIsSavingPassword(false);
     }
   };
 
@@ -223,11 +212,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     syncPasswordsFromCloud().then((passwords) => {
       setIsSyncingCloud(false);
       setCloudSynced(true);
-      if (activeTab === 'super_admin') {
-        setSuperPass(passwords['superadmin'] || 'superadmin2027');
-      } else if (activeTab === 'admin_kecamatan') {
-        setKecPass(passwords[`kec_${selectedKecCode}`] || `admin${selectedKecCode}`);
-      }
+      setErrorMessage(null);
     }).catch(() => {
       setIsSyncingCloud(false);
     });
@@ -447,10 +432,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    disabled={isSubmittingLogin}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span>Masuk Super Admin</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    {isSubmittingLogin ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Memverifikasi...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Masuk Super Admin</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -553,10 +548,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    disabled={isSubmittingLogin}
+                    className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span>Masuk Admin Kecamatan</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    {isSubmittingLogin ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Memverifikasi...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Masuk Admin Kecamatan</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -737,7 +742,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <button
                     type="button"
                     onClick={handleResetPassword}
-                    className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                    disabled={isSavingPassword}
+                    className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-rose-600 transition-colors cursor-pointer disabled:opacity-50"
                     title="Kembalikan kata sandi akun ini ke pengaturan pabrik/default"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -746,10 +752,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
                   <button
                     type="submit"
-                    className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    disabled={isSavingPassword}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>Simpan Password Baru</span>
+                    {isSavingPassword ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Menyimpan ke Cloud Spreadsheet...</span>
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Simpan Password Baru</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>

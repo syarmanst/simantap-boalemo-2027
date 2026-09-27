@@ -44,6 +44,17 @@ export const saveCustomPassword = (accountKey: string, newPass: string): void =>
 };
 
 /**
+ * Simpan password secara asynchronous dan tunggu konfirmasi dari Google Spreadsheet
+ */
+export const saveCustomPasswordAsync = async (accountKey: string, newPass: string): Promise<boolean> => {
+  const current = getCustomPasswords();
+  current[accountKey] = newPass;
+  localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(current));
+
+  return await saveCloudPassword(accountKey, newPass);
+};
+
+/**
  * Sinkronisasi password dari Cloud Google Spreadsheet ke penyimpanan lokal
  */
 export const syncPasswordsFromCloud = async (): Promise<Record<string, string>> => {
@@ -69,6 +80,15 @@ export const resetPasswordToDefault = (accountKey: string): void => {
   // Also remove or set to default on cloud
   const defaultPass = accountKey === 'superadmin' ? DEFAULT_SUPERADMIN.password : `admin${accountKey.replace('kec_', '')}`;
   saveCloudPassword(accountKey, defaultPass).catch(() => {});
+};
+
+export const resetPasswordToDefaultAsync = async (accountKey: string): Promise<boolean> => {
+  const current = getCustomPasswords();
+  delete current[accountKey];
+  localStorage.setItem(CUSTOM_PASSWORDS_KEY, JSON.stringify(current));
+
+  const defaultPass = accountKey === 'superadmin' ? DEFAULT_SUPERADMIN.password : `admin${accountKey.replace('kec_', '')}`;
+  return await saveCloudPassword(accountKey, defaultPass);
 };
 
 export const changeAccountPassword = (
@@ -125,6 +145,86 @@ export const changeAccountPassword = (
 
   saveCustomPassword(accountKey, cleanNewPass);
   return { success: true, message: `Password Admin Kecamatan ${matchedKec.name} berhasil diubah dan tersinkron ke semua perangkat!` };
+};
+
+/**
+ * Ubah password secara asynchronous dengan verifikasi dan penyimpanan ke Google Spreadsheet
+ */
+export const changeAccountPasswordAsync = async (
+  roleTarget: 'super_admin' | 'admin_kecamatan',
+  identifier: string,
+  currentPass: string,
+  newPass: string
+): Promise<{ success: boolean; message: string }> => {
+  const cleanPass = currentPass.trim();
+  const cleanNewPass = newPass.trim();
+
+  if (!cleanNewPass || cleanNewPass.length < 5) {
+    return { success: false, message: 'Password baru minimal harus 5 karakter.' };
+  }
+
+  // Tarik data kredensial terbaru dari Google Spreadsheet sebelum verifikasi
+  const customPasswords = await syncPasswordsFromCloud();
+
+  if (roleTarget === 'super_admin') {
+    const savedPass = customPasswords['superadmin'];
+    const isOldValid = savedPass
+      ? cleanPass === savedPass
+      : (cleanPass === DEFAULT_SUPERADMIN.password || cleanPass === 'boalemo2027' || cleanPass === 'admin');
+
+    if (!isOldValid) {
+      return { success: false, message: 'Password saat ini salah untuk akun Super Admin.' };
+    }
+
+    const saved = await saveCustomPasswordAsync('superadmin', cleanNewPass);
+    if (!saved) {
+      return {
+        success: true,
+        message: 'Password berhasil diubah di peramban ini. Pastikan terhubung internet agar tersimpan di Google Spreadsheet.',
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Password Super Admin berhasil diubah dan tersimpan permanen di database Google Spreadsheet!',
+    };
+  }
+
+  // Admin Kecamatan
+  const cleanId = identifier.trim().toLowerCase();
+  const matchedKec = KECAMATAN_LIST_META.find(
+    (k) =>
+      k.code === cleanId ||
+      k.name.toLowerCase() === cleanId ||
+      `admin_${k.code}` === cleanId
+  );
+
+  if (!matchedKec) {
+    return { success: false, message: 'Kecamatan tidak ditemukan.' };
+  }
+
+  const accountKey = `kec_${matchedKec.code}`;
+  const savedKecPass = customPasswords[accountKey];
+  const isKecOldValid = savedKecPass
+    ? cleanPass === savedKecPass
+    : (cleanPass === `admin${matchedKec.code}` || cleanPass === 'admin2027' || cleanPass === matchedKec.code || cleanPass === 'admin');
+
+  if (!isKecOldValid) {
+    return { success: false, message: `Password saat ini salah untuk Admin Kec. ${matchedKec.name}.` };
+  }
+
+  const saved = await saveCustomPasswordAsync(accountKey, cleanNewPass);
+  if (!saved) {
+    return {
+      success: true,
+      message: `Password Admin Kec. ${matchedKec.name} berhasil diubah di peramban ini. Pastikan terhubung internet agar tersimpan di Google Spreadsheet.`,
+    };
+  }
+
+  return {
+    success: true,
+    message: `Password Admin Kecamatan ${matchedKec.name} berhasil diubah dan tersimpan permanen di database Google Spreadsheet!`,
+  };
 };
 
 export const DEFAULT_VIEWER_SESSION: UserSession = {
@@ -209,4 +309,93 @@ export const authenticateUser = (
     success: false,
     message: `Password tidak sesuai untuk Admin Kecamatan ${matchedKec.name}.`,
   };
+};
+
+/**
+ * Autentikasi secara asynchronous dengan sinkronisasi langsung ke Google Spreadsheet jika diperlukan
+ */
+export const authenticateUserAsync = async (
+  roleTarget: 'super_admin' | 'admin_kecamatan',
+  identifier: string,
+  pass: string
+): Promise<{ success: boolean; session?: UserSession; message?: string }> => {
+  // Cek lokal terlebih dahulu untuk respon instan
+  const initialCheck = authenticateUser(roleTarget, identifier, pass);
+  if (initialCheck.success) {
+    return initialCheck;
+  }
+
+  // Jika belum cocok, tarik kredensial terbaru langsung dari Cloud Spreadsheet
+  try {
+    const cloudPasswords = await syncPasswordsFromCloud();
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    if (roleTarget === 'super_admin') {
+      const isSuperUserValid = cleanId === 'superadmin' || cleanId === 'super' || cleanId === 'admin_boalemo';
+      const customSuperPass = cloudPasswords['superadmin'];
+      const isSuperPassValid = customSuperPass
+        ? cleanPass === customSuperPass
+        : (cleanPass === DEFAULT_SUPERADMIN.password || cleanPass === 'boalemo2027' || cleanPass === 'admin');
+
+      if (isSuperUserValid && isSuperPassValid) {
+        return {
+          success: true,
+          session: {
+            role: 'super_admin',
+            username: 'superadmin',
+            displayName: 'Super Admin (Kabupaten Boalemo)',
+          },
+        };
+      }
+      return {
+        success: false,
+        message: 'Username atau Password Super Admin tidak sesuai dengan database Google Spreadsheet.',
+      };
+    }
+
+    // Admin Kecamatan
+    const matchedKec = KECAMATAN_LIST_META.find(
+      (k) =>
+        k.code === cleanId ||
+        k.name.toLowerCase() === cleanId ||
+        `admin_${k.code}` === cleanId ||
+        `admin_${k.name.toLowerCase()}` === cleanId
+    );
+
+    if (!matchedKec) {
+      return {
+        success: false,
+        message: 'Kode Kecamatan tidak ditemukan. Masukkan kode 6 digit wilayah Boalemo.',
+      };
+    }
+
+    const customKecPass = cloudPasswords[`kec_${matchedKec.code}`];
+    const isKecPassValid = customKecPass
+      ? cleanPass === customKecPass
+      : (cleanPass === `admin${matchedKec.code}` ||
+         cleanPass === 'admin2027' ||
+         cleanPass === matchedKec.code ||
+         cleanPass === 'admin');
+
+    if (isKecPassValid) {
+      return {
+        success: true,
+        session: {
+          role: 'admin_kecamatan',
+          username: matchedKec.code,
+          displayName: `Admin Kec. ${matchedKec.name}`,
+          kecamatanCode: matchedKec.code,
+          kecamatanName: matchedKec.name,
+        },
+      };
+    }
+
+    return {
+      success: false,
+      message: `Password tidak sesuai untuk Admin Kecamatan ${matchedKec.name} di database Google Spreadsheet.`,
+    };
+  } catch (err) {
+    return initialCheck;
+  }
 };

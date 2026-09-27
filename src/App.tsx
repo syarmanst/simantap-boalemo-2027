@@ -28,8 +28,9 @@ import {
   DESIGNATED_SPREADSHEET_ID,
   DESIGNATED_SPREADSHEET_URL
 } from './services/googleSheetsDatabase';
-import { getAppsScriptUrl, updateVillageViaAppsScript } from './services/appsScriptDatabase';
+import { getAppsScriptUrl, updateVillageViaAppsScript, fetchFromAppsScript } from './services/appsScriptDatabase';
 import { initGoogleAuth, getAccessToken } from './services/googleAuth';
+import { CloudCheck, CheckCircle2 } from 'lucide-react';
 
 const STORAGE_KEY = 'boalemo_perencanaan_desa_2027';
 const SESSION_KEY = 'boalemo_user_session';
@@ -92,10 +93,31 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAddVillageModalOpen, setIsAddVillageModalOpen] = useState(false);
   const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
+  const [cloudSyncBanner, setCloudSyncBanner] = useState<string | null>(null);
 
-  // Initialize Google Auth state listener and sync cloud passwords on app load
+  // Initialize Google Auth state listener, sync credentials & auto-pull villages from Google Spreadsheet on startup
   useEffect(() => {
+    // 1. Sinkronisasi kredensial akun & password dari Google Spreadsheet
     syncPasswordsFromCloud().catch(() => {});
+
+    // 2. Tarik data perencanaan 82 desa secara otomatis dari Google Spreadsheet
+    const scriptUrl = getAppsScriptUrl();
+    if (scriptUrl) {
+      fetchFromAppsScript(scriptUrl, getInitialVillages())
+        .then((result) => {
+          if (result && result.villages && result.count > 0) {
+            setVillages(result.villages);
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(result.villages));
+            } catch (e) {}
+            setCloudSyncBanner(`Data perencanaan terbaru (${result.count} desa) tersinkron otomatis dari Google Spreadsheet`);
+            setTimeout(() => setCloudSyncBanner(null), 5000);
+          }
+        })
+        .catch((err) => {
+          console.warn('Auto fetch data desa on start:', err);
+        });
+    }
 
     const unsubscribe = initGoogleAuth(
       (user, token) => {
@@ -294,6 +316,24 @@ export default function App() {
           onApplyVillages={(updated) => setVillages(updated)}
           onUpdateConfig={(cfg) => setSheetsConfig(cfg)}
         />
+      )}
+
+      {/* Cloud Sync Toast Notification */}
+      {cloudSyncBanner && (
+        <div className="bg-emerald-600 text-white text-xs py-2 px-4 flex items-center justify-between shadow-xs animate-fade-in">
+          <div className="max-w-7xl mx-auto flex items-center gap-2 w-full justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
+              <span className="font-medium">{cloudSyncBanner}</span>
+            </div>
+            <button
+              onClick={() => setCloudSyncBanner(null)}
+              className="text-emerald-100 hover:text-white font-bold text-xs ml-4 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Module Navigation Bar (shown prominently in input mode or quick access) */}
