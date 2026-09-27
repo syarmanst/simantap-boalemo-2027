@@ -1,8 +1,8 @@
-import * as XLSX from 'xlsx';
 import { VillagePlanRecord } from '../types';
 import { calcGenderTotal, calcUnsurTotal, calcSelisih, parseRawNumber, parseRawString } from './calculations';
 
-export const exportToExcel = (villages: VillagePlanRecord[], filename = 'Pemantauan_Perencanaan_Desa_2027_Kab_Boalemo.xlsx') => {
+export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'Pemantauan_Perencanaan_Desa_2027_Kab_Boalemo.xlsx') => {
+  const XLSX = await import('xlsx');
   // Build header rows mimicking the official Google Spreadsheet template
   const headerRow1 = [
     'No.', 'IdProv', 'Provinsi', 'IdKab', 'Kabupaten', 'IdKec', 'Kecamatan', 'IdDesa', 'Desa',
@@ -251,8 +251,9 @@ export const parseUploadedExcel = async (
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        const XLSX = await import('xlsx');
         const data = e.target?.result;
         const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
         const firstSheetName = workbook.SheetNames[0];
