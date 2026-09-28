@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { VillagePlanRecord, UserSession } from '../types';
 import { KECAMATAN_LIST_META } from '../data/authConfig';
-import { emptySession, emptyKdmpSession } from '../utils/calculations';
+import { emptySession, emptyKdmpSession, cleanDateString } from '../utils/calculations';
+import { DateInputField } from './DateInputField';
 import { PlusCircle, X, Building2, MapPin } from 'lucide-react';
 
 interface AddVillageModalProps {
@@ -70,7 +71,7 @@ export const AddVillageModal: React.FC<AddVillageModalProps> = ({
       kecamatan: selectedKecMeta.name,
       idDesa: generatedId,
       desa: desaName.trim(),
-      rpjmDesTgl: rpjmDesTgl.trim(),
+      rpjmDesTgl: cleanDateString(rpjmDesTgl),
       musdesPersiapan: emptySession(),
       pencermatanRpjmTgl: '',
       musrenbangdes: emptySession(),
@@ -191,12 +192,10 @@ export const AddVillageModal: React.FC<AddVillageModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Tanggal Terbit Perdes RPJM Desa (Opsional)
             </label>
-            <input
-              type="text"
+            <DateInputField
               value={rpjmDesTgl}
-              onChange={(e) => setRpjmDesTgl(e.target.value)}
+              onChange={(val) => setRpjmDesTgl(val)}
               placeholder="dd/mm/yyyy"
-              className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono"
             />
           </div>
 

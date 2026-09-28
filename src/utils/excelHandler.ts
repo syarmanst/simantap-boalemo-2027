@@ -1,5 +1,5 @@
 import { VillagePlanRecord } from '../types';
-import { calcGenderTotal, calcUnsurTotal, calcSelisih, parseRawNumber, parseRawString } from './calculations';
+import { calcGenderTotal, calcUnsurTotal, calcSelisih, parseRawNumber, parseRawString, cleanDateString } from './calculations';
 
 export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'Pemantauan_Perencanaan_Desa_2027_Kab_Boalemo.xlsx') => {
   const XLSX = await import('xlsx');
@@ -115,9 +115,9 @@ export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'P
       v.kecamatan,
       v.idDesa,
       v.desa,
-      v.rpjmDesTgl,
+      cleanDateString(v.rpjmDesTgl),
       // Musdes Persiapan
-      v.musdesPersiapan.tanggal,
+      cleanDateString(v.musdesPersiapan.tanggal),
       mpL,
       mpP,
       mpJml,
@@ -139,9 +139,9 @@ export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'P
       mpSelisihVal,
       v.musdesPersiapan.keterangan,
       // Pencermatan
-      v.pencermatanRpjmTgl,
+      cleanDateString(v.pencermatanRpjmTgl),
       // Musrenbangdes
-      v.musrenbangdes.tanggal,
+      cleanDateString(v.musrenbangdes.tanggal),
       mbL,
       mbP,
       mbJml,
@@ -163,7 +163,7 @@ export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'P
       mbSelisihVal,
       v.musrenbangdes.keterangan,
       // Musdes Pengesahan
-      v.musdesPengesahan.tanggal,
+      cleanDateString(v.musdesPengesahan.tanggal),
       mgL,
       mgP,
       mgJml,
@@ -185,14 +185,14 @@ export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'P
       mgSelisihVal,
       v.musdesPengesahan.keterangan,
       // Perdes RKP, RAPB, APB
-      v.perdesRkpTgl,
-      v.rapbDesTgl,
-      v.perdesApbTgl,
+      cleanDateString(v.perdesRkpTgl),
+      cleanDateString(v.rapbDesTgl),
+      cleanDateString(v.perdesApbTgl),
       v.perdesApbNomor,
       v.perdesApbTahun,
       // Musdesus KDMP
       kdMel,
-      v.musdesusKdmp.tanggal,
+      cleanDateString(v.musdesusKdmp.tanggal),
       kdL,
       kdP,
       kdJml,
@@ -214,8 +214,8 @@ export const exportToExcel = async (villages: VillagePlanRecord[], filename = 'P
       kdSelisihVal,
       v.musdesusKdmp.keterangan,
       // Perubahan & Nilai DD
-      v.perdesRkpPerubahanTgl,
-      v.perdesApbPerubahanTgl,
+      cleanDateString(v.perdesRkpPerubahanTgl),
+      cleanDateString(v.perdesApbPerubahanTgl),
       v.perdesApbPerubahanNomor,
       v.nilaiDdKdmp ?? '',
       v.keteranganUmum,
@@ -317,10 +317,10 @@ export const parseUploadedExcel = async (
           if (targetRecord) {
             matchedCount++;
             // Update fields from row
-            if (row[9] !== undefined) targetRecord.rpjmDesTgl = parseRawString(row[9]);
+            if (row[9] !== undefined) targetRecord.rpjmDesTgl = cleanDateString(row[9]);
 
             // Musdes Persiapan (10..30)
-            if (row[10] !== undefined) targetRecord.musdesPersiapan.tanggal = parseRawString(row[10]);
+            if (row[10] !== undefined) targetRecord.musdesPersiapan.tanggal = cleanDateString(row[10]);
             if (row[11] !== undefined) targetRecord.musdesPersiapan.lk = parseRawNumber(row[11]);
             if (row[12] !== undefined) targetRecord.musdesPersiapan.pr = parseRawNumber(row[12]);
             if (row[14] !== undefined) targetRecord.musdesPersiapan.unsur.pemdes = parseRawNumber(row[14]);
@@ -340,10 +340,10 @@ export const parseUploadedExcel = async (
             if (row[30] !== undefined) targetRecord.musdesPersiapan.keterangan = parseRawString(row[30]);
 
             // Pencermatan (31)
-            if (row[31] !== undefined) targetRecord.pencermatanRpjmTgl = parseRawString(row[31]);
+            if (row[31] !== undefined) targetRecord.pencermatanRpjmTgl = cleanDateString(row[31]);
 
             // Musrenbangdes (32..52)
-            if (row[32] !== undefined) targetRecord.musrenbangdes.tanggal = parseRawString(row[32]);
+            if (row[32] !== undefined) targetRecord.musrenbangdes.tanggal = cleanDateString(row[32]);
             if (row[33] !== undefined) targetRecord.musrenbangdes.lk = parseRawNumber(row[33]);
             if (row[34] !== undefined) targetRecord.musrenbangdes.pr = parseRawNumber(row[34]);
             if (row[36] !== undefined) targetRecord.musrenbangdes.unsur.pemdes = parseRawNumber(row[36]);
@@ -363,7 +363,7 @@ export const parseUploadedExcel = async (
             if (row[52] !== undefined) targetRecord.musrenbangdes.keterangan = parseRawString(row[52]);
 
             // Musdes Pengesahan (53..73)
-            if (row[53] !== undefined) targetRecord.musdesPengesahan.tanggal = parseRawString(row[53]);
+            if (row[53] !== undefined) targetRecord.musdesPengesahan.tanggal = cleanDateString(row[53]);
             if (row[54] !== undefined) targetRecord.musdesPengesahan.lk = parseRawNumber(row[54]);
             if (row[55] !== undefined) targetRecord.musdesPengesahan.pr = parseRawNumber(row[55]);
             if (row[57] !== undefined) targetRecord.musdesPengesahan.unsur.pemdes = parseRawNumber(row[57]);
@@ -383,15 +383,15 @@ export const parseUploadedExcel = async (
             if (row[73] !== undefined) targetRecord.musdesPengesahan.keterangan = parseRawString(row[73]);
 
             // Perdes RKP, RAPB, APB (74..78)
-            if (row[74] !== undefined) targetRecord.perdesRkpTgl = parseRawString(row[74]);
-            if (row[75] !== undefined) targetRecord.rapbDesTgl = parseRawString(row[75]);
-            if (row[76] !== undefined) targetRecord.perdesApbTgl = parseRawString(row[76]);
+            if (row[74] !== undefined) targetRecord.perdesRkpTgl = cleanDateString(row[74]);
+            if (row[75] !== undefined) targetRecord.rapbDesTgl = cleanDateString(row[75]);
+            if (row[76] !== undefined) targetRecord.perdesApbTgl = cleanDateString(row[76]);
             if (row[77] !== undefined) targetRecord.perdesApbNomor = parseRawString(row[77]);
             if (row[78] !== undefined) targetRecord.perdesApbTahun = parseRawString(row[78]);
 
             // Musdesus KDMP (79..100)
             if (row[79] !== undefined) targetRecord.musdesusKdmp.melaksanakan = parseRawNumber(row[79]);
-            if (row[80] !== undefined) targetRecord.musdesusKdmp.tanggal = parseRawString(row[80]);
+            if (row[80] !== undefined) targetRecord.musdesusKdmp.tanggal = cleanDateString(row[80]);
             if (row[81] !== undefined) targetRecord.musdesusKdmp.lk = parseRawNumber(row[81]);
             if (row[82] !== undefined) targetRecord.musdesusKdmp.pr = parseRawNumber(row[82]);
             if (row[84] !== undefined) targetRecord.musdesusKdmp.unsur.pemdes = parseRawNumber(row[84]);
@@ -411,8 +411,8 @@ export const parseUploadedExcel = async (
             if (row[100] !== undefined) targetRecord.musdesusKdmp.keterangan = parseRawString(row[100]);
 
             // Perubahan (101..105)
-            if (row[101] !== undefined) targetRecord.perdesRkpPerubahanTgl = parseRawString(row[101]);
-            if (row[102] !== undefined) targetRecord.perdesApbPerubahanTgl = parseRawString(row[102]);
+            if (row[101] !== undefined) targetRecord.perdesRkpPerubahanTgl = cleanDateString(row[101]);
+            if (row[102] !== undefined) targetRecord.perdesApbPerubahanTgl = cleanDateString(row[102]);
             if (row[103] !== undefined) targetRecord.perdesApbPerubahanNomor = parseRawString(row[103]);
             if (row[104] !== undefined) targetRecord.nilaiDdKdmp = parseRawNumber(row[104]);
             if (row[105] !== undefined) targetRecord.keteranganUmum = parseRawString(row[105]);

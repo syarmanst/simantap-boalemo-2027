@@ -1,5 +1,5 @@
 import { VillagePlanRecord } from '../types';
-import { calcGenderTotal, calcUnsurTotal, calcSelisih, parseRawNumber, parseRawString } from '../utils/calculations';
+import { calcGenderTotal, calcUnsurTotal, calcSelisih, parseRawNumber, parseRawString, cleanDateString } from '../utils/calculations';
 
 export interface GoogleSheetsConfig {
   spreadsheetId: string;
@@ -308,9 +308,9 @@ export const villageToRowArray = (v: VillagePlanRecord): any[] => {
     v.kecamatan,
     v.idDesa,
     v.desa,
-    v.rpjmDesTgl,
+    cleanDateString(v.rpjmDesTgl),
     // Musdes Persiapan
-    v.musdesPersiapan.tanggal,
+    cleanDateString(v.musdesPersiapan.tanggal),
     mpL,
     mpP,
     mpJml,
@@ -332,9 +332,9 @@ export const villageToRowArray = (v: VillagePlanRecord): any[] => {
     mpSelisihVal,
     v.musdesPersiapan.keterangan,
     // Pencermatan
-    v.pencermatanRpjmTgl,
+    cleanDateString(v.pencermatanRpjmTgl),
     // Musrenbangdes
-    v.musrenbangdes.tanggal,
+    cleanDateString(v.musrenbangdes.tanggal),
     mbL,
     mbP,
     mbJml,
@@ -356,7 +356,7 @@ export const villageToRowArray = (v: VillagePlanRecord): any[] => {
     mbSelisihVal,
     v.musrenbangdes.keterangan,
     // Musdes Pengesahan
-    v.musdesPengesahan.tanggal,
+    cleanDateString(v.musdesPengesahan.tanggal),
     mgL,
     mgP,
     mgJml,
@@ -378,14 +378,14 @@ export const villageToRowArray = (v: VillagePlanRecord): any[] => {
     mgSelisihVal,
     v.musdesPengesahan.keterangan,
     // Perdes RKP, RAPB, APB
-    v.perdesRkpTgl,
-    v.rapbDesTgl,
-    v.perdesApbTgl,
+    cleanDateString(v.perdesRkpTgl),
+    cleanDateString(v.rapbDesTgl),
+    cleanDateString(v.perdesApbTgl),
     v.perdesApbNomor,
     v.perdesApbTahun,
     // Musdesus KDMP
     kdMel,
-    v.musdesusKdmp.tanggal,
+    cleanDateString(v.musdesusKdmp.tanggal),
     kdL,
     kdP,
     kdJml,
@@ -407,8 +407,8 @@ export const villageToRowArray = (v: VillagePlanRecord): any[] => {
     kdSelisihVal,
     v.musdesusKdmp.keterangan,
     // Perubahan & Nilai DD
-    v.perdesRkpPerubahanTgl,
-    v.perdesApbPerubahanTgl,
+    cleanDateString(v.perdesRkpPerubahanTgl),
+    cleanDateString(v.perdesApbPerubahanTgl),
     v.perdesApbPerubahanNomor,
     v.nilaiDdKdmp ?? '',
     v.keteranganUmum,
@@ -458,10 +458,10 @@ export const parseRowsToVillages = (
     let target = villageMap.get(idDesa) || villageMap.get(desaName);
     if (target) {
       matchedCount++;
-      if (row[9] !== undefined) target.rpjmDesTgl = parseRawString(row[9]);
+      if (row[9] !== undefined) target.rpjmDesTgl = cleanDateString(row[9]);
 
       // Musdes Persiapan
-      if (row[10] !== undefined) target.musdesPersiapan.tanggal = parseRawString(row[10]);
+      if (row[10] !== undefined) target.musdesPersiapan.tanggal = cleanDateString(row[10]);
       if (row[11] !== undefined) target.musdesPersiapan.lk = parseRawNumber(row[11]);
       if (row[12] !== undefined) target.musdesPersiapan.pr = parseRawNumber(row[12]);
       if (row[14] !== undefined) target.musdesPersiapan.unsur.pemdes = parseRawNumber(row[14]);
@@ -481,10 +481,10 @@ export const parseRowsToVillages = (
       if (row[30] !== undefined) target.musdesPersiapan.keterangan = parseRawString(row[30]);
 
       // Pencermatan
-      if (row[31] !== undefined) target.pencermatanRpjmTgl = parseRawString(row[31]);
+      if (row[31] !== undefined) target.pencermatanRpjmTgl = cleanDateString(row[31]);
 
       // Musrenbangdes
-      if (row[32] !== undefined) target.musrenbangdes.tanggal = parseRawString(row[32]);
+      if (row[32] !== undefined) target.musrenbangdes.tanggal = cleanDateString(row[32]);
       if (row[33] !== undefined) target.musrenbangdes.lk = parseRawNumber(row[33]);
       if (row[34] !== undefined) target.musrenbangdes.pr = parseRawNumber(row[34]);
       if (row[36] !== undefined) target.musrenbangdes.unsur.pemdes = parseRawNumber(row[36]);
@@ -504,7 +504,7 @@ export const parseRowsToVillages = (
       if (row[52] !== undefined) target.musrenbangdes.keterangan = parseRawString(row[52]);
 
       // Musdes Pengesahan
-      if (row[53] !== undefined) target.musdesPengesahan.tanggal = parseRawString(row[53]);
+      if (row[53] !== undefined) target.musdesPengesahan.tanggal = cleanDateString(row[53]);
       if (row[54] !== undefined) target.musdesPengesahan.lk = parseRawNumber(row[54]);
       if (row[55] !== undefined) target.musdesPengesahan.pr = parseRawNumber(row[55]);
       if (row[57] !== undefined) target.musdesPengesahan.unsur.pemdes = parseRawNumber(row[57]);
@@ -524,15 +524,15 @@ export const parseRowsToVillages = (
       if (row[73] !== undefined) target.musdesPengesahan.keterangan = parseRawString(row[73]);
 
       // Perdes RKP, RAPB, APB
-      if (row[74] !== undefined) target.perdesRkpTgl = parseRawString(row[74]);
-      if (row[75] !== undefined) target.rapbDesTgl = parseRawString(row[75]);
-      if (row[76] !== undefined) target.perdesApbTgl = parseRawString(row[76]);
+      if (row[74] !== undefined) target.perdesRkpTgl = cleanDateString(row[74]);
+      if (row[75] !== undefined) target.rapbDesTgl = cleanDateString(row[75]);
+      if (row[76] !== undefined) target.perdesApbTgl = cleanDateString(row[76]);
       if (row[77] !== undefined) target.perdesApbNomor = parseRawString(row[77]);
       if (row[78] !== undefined) target.perdesApbTahun = parseRawString(row[78]);
 
       // Musdesus KDMP
       if (row[79] !== undefined) target.musdesusKdmp.melaksanakan = parseRawNumber(row[79]);
-      if (row[80] !== undefined) target.musdesusKdmp.tanggal = parseRawString(row[80]);
+      if (row[80] !== undefined) target.musdesusKdmp.tanggal = cleanDateString(row[80]);
       if (row[81] !== undefined) target.musdesusKdmp.lk = parseRawNumber(row[81]);
       if (row[82] !== undefined) target.musdesusKdmp.pr = parseRawNumber(row[82]);
       if (row[84] !== undefined) target.musdesusKdmp.unsur.pemdes = parseRawNumber(row[84]);
@@ -552,8 +552,8 @@ export const parseRowsToVillages = (
       if (row[100] !== undefined) target.musdesusKdmp.keterangan = parseRawString(row[100]);
 
       // Perubahan
-      if (row[101] !== undefined) target.perdesRkpPerubahanTgl = parseRawString(row[101]);
-      if (row[102] !== undefined) target.perdesApbPerubahanTgl = parseRawString(row[102]);
+      if (row[101] !== undefined) target.perdesRkpPerubahanTgl = cleanDateString(row[101]);
+      if (row[102] !== undefined) target.perdesApbPerubahanTgl = cleanDateString(row[102]);
       if (row[103] !== undefined) target.perdesApbPerubahanNomor = parseRawString(row[103]);
       if (row[104] !== undefined) target.nilaiDdKdmp = parseRawNumber(row[104]);
       if (row[105] !== undefined) target.keteranganUmum = parseRawString(row[105]);

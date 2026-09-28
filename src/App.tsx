@@ -20,6 +20,7 @@ import { LoginModal } from './components/LoginModal';
 import { AddVillageModal } from './components/AddVillageModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { exportToExcel } from './utils/excelHandler';
+import { sanitizeVillageDates } from './utils/calculations';
 import {
   GoogleSheetsConfig,
   SHEETS_CONFIG_KEY,
@@ -42,13 +43,13 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          return parsed.map(sanitizeVillageDates);
         }
       }
     } catch (e) {
       console.error('Failed to load saved state from localStorage:', e);
     }
-    return getInitialVillages();
+    return getInitialVillages().map(sanitizeVillageDates);
   });
 
   // Default session: Viewer (Pengunjung publik dapat langsung melihat tanpa melalui login)
@@ -106,9 +107,10 @@ export default function App() {
       fetchFromAppsScript(scriptUrl, getInitialVillages())
         .then((result) => {
           if (result && result.villages && result.count > 0) {
-            setVillages(result.villages);
+            const sanitized = result.villages.map(sanitizeVillageDates);
+            setVillages(sanitized);
             try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(result.villages));
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
             } catch (e) {}
             setCloudSyncBanner(`Data perencanaan terbaru (${result.count} desa) tersinkron otomatis dari Google Spreadsheet`);
             setTimeout(() => setCloudSyncBanner(null), 5000);
@@ -152,15 +154,16 @@ export default function App() {
 
   // CRUD: Update Village + Auto Sync to Google Sheets if enabled
   const handleSaveVillage = (updatedVillage: VillagePlanRecord) => {
+    const sanitized = sanitizeVillageDates(updatedVillage);
     setVillages((prev) =>
-      prev.map((v) => (v.idDesa === updatedVillage.idDesa ? updatedVillage : v))
+      prev.map((v) => (v.idDesa === sanitized.idDesa ? sanitized : v))
     );
 
     // If auto sync is enabled with Google Sheets, push update in background
     if (sheetsConfig?.autoSync) {
       const scriptUrl = getAppsScriptUrl();
       if (scriptUrl) {
-        updateVillageViaAppsScript(scriptUrl, updatedVillage).then((ok) => {
+        updateVillageViaAppsScript(scriptUrl, sanitized).then((ok) => {
           if (ok) {
             setSheetsConfig((prev) =>
               prev
@@ -184,7 +187,7 @@ export default function App() {
               token,
               sheetsConfig.spreadsheetId,
               sheetsConfig.sheetName,
-              updatedVillage
+              sanitized
             ).then((ok) => {
               if (ok) {
                 setSheetsConfig((prev) =>
@@ -209,8 +212,9 @@ export default function App() {
 
   // CRUD: Create Village
   const handleAddVillage = (newVillage: VillagePlanRecord) => {
-    setVillages((prev) => [...prev, newVillage]);
-    setCurrentVillageId(newVillage.idDesa);
+    const sanitized = sanitizeVillageDates(newVillage);
+    setVillages((prev) => [...prev, sanitized]);
+    setCurrentVillageId(sanitized.idDesa);
     setActiveView('input');
   };
 
@@ -226,7 +230,7 @@ export default function App() {
   };
 
   const handleApplyImport = (updatedVillages: VillagePlanRecord[]) => {
-    setVillages(updatedVillages);
+    setVillages(updatedVillages.map(sanitizeVillageDates));
   };
 
   const handleResetData = () => {
