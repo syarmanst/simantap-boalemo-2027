@@ -352,7 +352,7 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
                       </span>
                     </div>
                     <div className="flex items-center gap-3 pt-0.5 text-[11px] text-slate-400 flex-wrap">
-                      <span>Tab Data: <strong className="text-slate-200">{DESIGNATED_SHEET_NAME}</strong></span>
+                      <span>Sheet Aktif: <strong className="text-slate-200">DATA_DESA</strong>, <strong className="text-slate-200">KREDENSIAL_AKUN</strong>, <strong className="text-emerald-300">BUKTI_DOKUMEN</strong></span>
                       <span>•</span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3 text-slate-500" />
@@ -486,8 +486,9 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
                 <div className="font-semibold text-slate-200">Keunggulan Arsitektur Google Apps Script ini:</div>
                 <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
                   <li><strong>Otomatis Simpan Real-time</strong>: Setiap perubahan pada formulir langsung tersimpan ke spreadsheet.</li>
+                  <li><strong>Direct Download Berkas HD untuk Superadmin</strong>: Sheet <strong className="text-emerald-300">BUKTI_DOKUMEN</strong> pada kolom <code className="text-emerald-400 font-mono">Link_Dokumen</code> otomatis mencantumkan tautan aktif yang dapat langsung diklik Superadmin di Google Spreadsheet untuk mengunduh dokumen secara instan dalam resolusi HD (1.2 - 2 MB).</li>
+                  <li><strong>Bebas Hambatan Akun Google</strong>: Tautan berkas bukti dapat diakses dan diunduh dari akun Google mana saja tanpa login atau izin khusus.</li>
                   <li><strong>Tidak memerlukan akun/project Firebase</strong> sama sekali.</li>
-                  <li><strong>Tidak memerlukan login OAuth popup</strong> di setiap komputer yang membuka aplikasi.</li>
                   <li><strong>100% Siap di Vercel</strong>, Netlify, atau web hosting mana saja tanpa server tambahan.</li>
                 </ul>
               </div>
@@ -513,14 +514,23 @@ export const GoogleSheetsDatabaseModal: React.FC<GoogleSheetsDatabaseModalProps>
                 </div>
 
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1.5">
-                  <div className="font-bold">Langkah Memasang di Google Spreadsheet:</div>
+                  <div className="font-bold">Langkah Memasang & Aktivasi Izin di Google Spreadsheet:</div>
                   <ol className="list-decimal list-inside space-y-1 text-[11px] text-amber-200/90 leading-relaxed">
                     <li>Buka Spreadsheet Anda (<code className="text-white font-mono">1ETuI256p8T5x-4WFVHB-FKonUkY8di9DroLkpAndF1w</code>).</li>
                     <li>Klik menu <strong>Extensions (Ekstensi)</strong> &gt; <strong>Apps Script</strong>.</li>
-                    <li>Hapus kode bawaan, lalu <strong>Paste (Tempel)</strong> kode di bawah ini.</li>
-                    <li>Klik tombol <strong>Deploy</strong> (kanan atas) &gt; <strong>New deployment</strong>.</li>
+                    <li>Hapus kode lama, lalu <strong>Paste (Tempel)</strong> seluruh kode di bawah ini. Simpan (<kbd className="bg-slate-900 px-1 py-0.5 rounded border border-slate-700">Ctrl + S</kbd>).</li>
+                    <li>
+                      <strong>Aktivasi Izin Google Drive HD:</strong> Pada menu dropdown fungsi di bilah atas Apps Script, pilih fungsi <code className="text-white font-mono font-bold bg-amber-950/80 px-1 py-0.5 rounded border border-amber-600">otorisasiGoogleDrive</code> lalu klik <strong>Run (Jalankan)</strong>:
+                      <div className="mt-1 pl-2 border-l-2 border-amber-500/40 text-[10px] text-amber-100/90 space-y-0.5">
+                        <div>• Pop-up Google muncul: Klik <strong>Review permissions (Tinjau Izin)</strong>.</div>
+                        <div>• Pilih akun Google Anda (<code className="text-white font-mono">syarmanst@gmail.com</code>).</div>
+                        <div>• Klik <strong>Advanced (Lanjutan)</strong> di kiri bawah &gt; Klik <strong>Go to project (unsafe) / Buka project</strong>.</div>
+                        <div>• Klik <strong>Allow (Izinkan)</strong>. Selesai!</div>
+                      </div>
+                    </li>
+                    <li>Klik tombol <strong>Deploy</strong> (kanan atas) &gt; <strong>New deployment</strong> (atau <em>Manage deployments &gt; Edit &gt; New version</em>).</li>
                     <li>Pilih tipe <strong>Web app</strong>. Pada bagian <em>Who has access</em> pilih: <strong>Anyone (Siapa saja)</strong>.</li>
-                    <li>Klik <strong>Deploy</strong> dan salin <strong>Web App URL</strong> yang dihasilkan ke tab "Koneksi Apps Script Web App".</li>
+                    <li>Klik <strong>Deploy</strong> dan pastikan Web App URL aktif.</li>
                   </ol>
                 </div>
 

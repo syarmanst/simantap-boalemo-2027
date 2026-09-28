@@ -21,6 +21,7 @@ import { AddVillageModal } from './components/AddVillageModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { exportToExcel } from './utils/excelHandler';
 import { sanitizeVillageDates } from './utils/calculations';
+import { fetchEvidenceFromCloud, mergeEvidenceIntoVillages } from './services/evidenceService';
 import {
   GoogleSheetsConfig,
   SHEETS_CONFIG_KEY,
@@ -118,6 +119,24 @@ export default function App() {
         })
         .catch((err) => {
           console.warn('Auto fetch data desa on start:', err);
+        });
+
+      // 3. Tarik seluruh bukti foto & dokumen pendukung (Sheet: BUKTI_DOKUMEN)
+      fetchEvidenceFromCloud(scriptUrl)
+        .then((evRes) => {
+          if (evRes.success && evRes.totalCount > 0) {
+            setVillages((prev) => {
+              const merged = mergeEvidenceIntoVillages(prev, evRes.evidenceMap);
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+              } catch (e) {}
+              return merged;
+            });
+            console.log(`Sinkronisasi bukti cloud: ${evRes.totalCount} berkas dimuat dari sheet BUKTI_DOKUMEN`);
+          }
+        })
+        .catch((err) => {
+          console.warn('Auto fetch evidence error:', err);
         });
     }
 

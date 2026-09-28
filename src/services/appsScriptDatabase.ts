@@ -328,7 +328,205 @@ function doGet(e) {
     }
   }
 
-  // 2. Ambil data Desa (DATA_DESA)
+  // 1c. Akses / Unduh Bukti Dokumen Langsung (Admin Spreadsheet & Multi-Perangkat)
+  if (action === 'downloadEvidence' || action === 'download' || action === 'viewEvidence') {
+    var p = e && e.parameter ? e.parameter : {};
+    var evId = String(p.id || '').trim();
+    if (!evId) {
+      return HtmlService.createHtmlOutput('<h3>ID Berkas tidak ditemukan.</h3>');
+    }
+    var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
+    if (!evSheet) {
+      return HtmlService.createHtmlOutput('<h3>Sheet BUKTI_DOKUMEN belum dibuat di Spreadsheet ini.</h3>');
+    }
+    var allData = evSheet.getDataRange().getValues();
+    var target = null;
+    var targetRowIndex = -1;
+    for (var i = 1; i < allData.length; i++) {
+      if (String(allData[i][0]).trim() === evId) {
+        target = allData[i];
+        targetRowIndex = i + 1;
+        break;
+      }
+    }
+    if (!target) {
+      return HtmlService.createHtmlOutput('<h3>Berkas bukti ID ' + evId + ' tidak ditemukan di sheet BUKTI_DOKUMEN.</h3>');
+    }
+
+    var fileName = String(target[6] || 'berkas_bukti');
+    var fileType = String(target[7] || 'document');
+    var formatSize = String(target[9] || '');
+    var driveDlUrl = String(target[12] || '');
+    var driveId = String(target[14] || '');
+    var base64Data = String(target[15] || target[12] || '') + String(target[16] || target[13] || '');
+
+    // Cek otomatis ke Google Drive jika driveId belum tercatat di baris
+    if (!driveId && typeof DriveApp !== 'undefined') {
+      try {
+        var folderName = 'BUKTI_DOKUMEN_BOALEMO';
+        var folders = DriveApp.getFoldersByName(folderName);
+        if (folders.hasNext()) {
+          var folder = folders.next();
+          var files = folder.getFilesByName(fileName);
+          if (files.hasNext()) {
+            var foundFile = files.next();
+            driveId = foundFile.getId();
+            var newDl = 'https://drive.usercontent.google.com/download?id=' + driveId + '&export=download';
+            var newView = 'https://drive.google.com/file/d/' + driveId + '/view?usp=sharing';
+            evSheet.getRange(targetRowIndex, 13).setValue(newDl);
+            evSheet.getRange(targetRowIndex, 14).setValue(newView);
+            evSheet.getRange(targetRowIndex, 15).setValue(driveId);
+          }
+        }
+      } catch (eFindDrive) {}
+    }
+
+    // Jika tersimpan di Google Drive, direct download berkas HD secara instan tanpa hambatan sandboxed iframe
+    if (driveId) {
+      var directDownloadUrl = 'https://drive.usercontent.google.com/download?id=' + driveId + '&export=download';
+      var directDriveViewUrl = 'https://drive.google.com/file/d/' + driveId + '/view?usp=sharing';
+      var fullHdImagePreview = 'https://lh3.googleusercontent.com/d/' + driveId + '=s0';
+
+      var redirectHtml = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<base target="_top">' +
+        '<title>Unduh ' + fileName + ' (HD)</title>' +
+        '<script>' +
+        'try { window.top.location.href = "' + directDownloadUrl + '"; } catch(e) { window.location.href = "' + directDownloadUrl + '"; }' +
+        '</script>' +
+        '</head><body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:90vh;box-sizing:border-box;">' +
+        '<div style="max-width:540px;width:100%;margin:0 auto;background:#1e293b;padding:32px;border-radius:16px;border:1px solid #334155;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);text-align:center;">' +
+        '<div style="width:56px;height:56px;margin:0 auto 16px;background:rgba(5,150,105,0.2);color:#34d399;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;border:1px solid rgba(52,211,153,0.3);">📥</div>' +
+        '<h2 style="color:#34d399;margin:0 0 6px 0;font-size:20px;font-weight:700;">Mengunduh Berkas HD</h2>' +
+        '<p style="color:#f1f5f9;font-size:15px;font-weight:600;margin:0 0 16px 0;word-break:break-all;">' + fileName + '</p>' +
+        '<div style="background:#0f172a;border-radius:10px;padding:12px;margin:0 0 20px 0;font-size:13px;color:#cbd5e1;text-align:left;border:1px solid #1e293b;">' +
+        '<div style="margin-bottom:4px;">💎 <strong>Format:</strong> <span style="color:#34d399;font-weight:bold;">' + (formatSize || 'Resolusi HD (1.2 - 2 MB)') + '</span></div>' +
+        '<div style="margin-bottom:4px;">🏛️ <strong>Desa:</strong> ' + target[2] + ' (' + target[4] + ')</div>' +
+        '<div>📁 <strong>Modul:</strong> ' + target[5] + '</div>' +
+        '</div>' +
+        (fileType === 'image' ? '<div style="margin-bottom:20px;"><img src="' + fullHdImagePreview + '" style="max-width:100%;max-height:260px;border-radius:8px;border:1px solid #334155;" alt="' + fileName + '"></div>' : '') +
+        '<div style="display:flex;flex-direction:column;gap:10px;">' +
+        '<a href="' + directDownloadUrl + '" target="_top" style="display:block;padding:13px 20px;background:#059669;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;">⬇️ Unduh Langsung Berkas HD (' + (formatSize || '1.5 MB') + ')</a>' +
+        '<a href="' + directDriveViewUrl + '" target="_blank" style="display:block;padding:11px 20px;background:#334155;color:#e2e8f0;text-decoration:none;border-radius:10px;font-weight:600;font-size:13px;">👁️ Buka di Google Drive</a>' +
+        '</div>' +
+        '<p style="margin:16px 0 0 0;font-size:12px;color:#94a3b8;">Unduhan otomatis dimulai. Jika belum terunduh, klik tombol hijau di atas.</p>' +
+        '</div></body></html>';
+      return HtmlService.createHtmlOutput(redirectHtml);
+    }
+
+    // Jika disimpan via dataUrl / base64
+    var downloadHtml = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<base target="_top">' +
+      '<title>Unduh ' + fileName + '</title>' +
+      '</head><body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:90vh;box-sizing:border-box;">' +
+      '<div style="max-width:620px;width:100%;margin:0 auto;background:#1e293b;padding:32px;border-radius:16px;border:1px solid #334155;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);text-align:center;">' +
+      '<h2 style="color:#34d399;margin-bottom:8px;">Unduh Bukti Dokumen HD</h2>' +
+      '<p style="color:#e2e8f0;font-size:16px;font-weight:bold;">' + fileName + '</p>' +
+      '<p style="color:#94a3b8;font-size:13px;">Format: ' + formatSize + ' • Desa: ' + target[2] + ' (' + target[4] + ')</p>' +
+      (fileType === 'image' && base64Data ? '<div style="margin:20px 0;"><img src="' + base64Data + '" style="max-width:100%;max-height:360px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.6);" alt="' + fileName + '"></div>' : '') +
+      '<p style="margin-top:24px;"><a id="dlAction" href="' + base64Data + '" download="' + fileName + '" target="_blank" style="display:inline-block;padding:12px 28px;background:#059669;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;">📥 Unduh Berkas Langsung</a></p>' +
+      '</div>' +
+      '<script>' +
+      'try {' +
+      '  var btn = document.getElementById("dlAction");' +
+      '  if (btn && btn.href && btn.href.startsWith("data:")) {' +
+      '    var parts = btn.href.split(";base64,");' +
+      '    var contentType = parts[0].replace("data:", "");' +
+      '    var raw = atob(parts[1]);' +
+      '    var rawLength = raw.length;' +
+      '    var uInt8Array = new Uint8Array(rawLength);' +
+      '    for (var i = 0; i < rawLength; ++i) { uInt8Array[i] = raw.charCodeAt(i); }' +
+      '    var blob = new Blob([uInt8Array], { type: contentType });' +
+      '    var blobUrl = URL.createObjectURL(blob);' +
+      '    btn.href = blobUrl;' +
+      '  }' +
+      '} catch(e) {}' +
+      '</script>' +
+      '</body></html>';
+    return HtmlService.createHtmlOutput(downloadHtml);
+  }
+
+  // 1d. Simpan Bukti Dokumen via GET parameter (Fallback jika POST dibatasi peramban)
+  if (action === 'saveEvidence') {
+    var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
+    var headers = [
+      'ID', 'IdDesa', 'Desa', 'IdKec', 'Kecamatan', 'Modul', 'NamaFile', 'Tipe',
+      'Ukuran', 'FormatUkuran', 'WaktuUpload', 'Keterangan',
+      'Link_Dokumen', 'Link_Lihat_Drive', 'Drive_File_ID',
+      'DataUrl_Part1', 'DataUrl_Part2', 'UploadedBy', 'UpdatedAt'
+    ];
+    if (!evSheet) {
+      evSheet = ss.insertSheet('BUKTI_DOKUMEN');
+      evSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      evSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#e2e8f0');
+      evSheet.setFrozenRows(1);
+    }
+    var p = e && e.parameter ? e.parameter : {};
+    var evId = String(p.id || '').trim();
+    if (evId) {
+      var allIds = evSheet.getRange('A:A').getValues();
+      var targetRow = -1;
+      for (var r = 1; r < allIds.length; r++) {
+        if (String(allIds[r][0]).trim() === evId) {
+          targetRow = r + 1;
+          break;
+        }
+      }
+      var nowStr = new Date().toISOString();
+      var appUrl = ScriptApp && ScriptApp.getService ? ScriptApp.getService().getUrl() : '';
+      var directDl = String(p.downloadUrl || (appUrl ? (appUrl + '?action=downloadEvidence&id=' + evId) : ''));
+      var evRow = [
+        evId,
+        String(p.idDesa || ''),
+        String(p.desa || ''),
+        String(p.idKec || ''),
+        String(p.kecamatan || ''),
+        String(p.moduleKey || ''),
+        String(p.name || ''),
+        String(p.type || 'document'),
+        Number(p.size) || 0,
+        String(p.formattedSize || ''),
+        String(p.uploadedAt || ''),
+        String(p.caption || ''),
+        directDl,
+        directDl,
+        '',
+        String(p.dataUrl_part1 || ''),
+        String(p.dataUrl_part2 || ''),
+        String(p.uploadedBy || 'Petugas'),
+        nowStr
+      ];
+      if (targetRow > 0) {
+        evSheet.getRange(targetRow, 1, 1, headers.length).setValues([evRow]);
+      } else {
+        evSheet.appendRow(evRow);
+      }
+      return createJsonResponse({
+        status: 'success',
+        message: 'Bukti berhasil disimpan di BUKTI_DOKUMEN',
+        downloadUrl: directDl
+      });
+    }
+  }
+
+  // 1e. Hapus Bukti Dokumen via GET parameter
+  if (action === 'deleteEvidence') {
+    var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
+    if (evSheet) {
+      var delId = String((e && e.parameter && e.parameter.id) || '').trim();
+      if (delId) {
+        var allIds = evSheet.getRange('A:A').getValues();
+        for (var r = 1; r < allIds.length; r++) {
+          if (String(allIds[r][0]).trim() === delId) {
+            evSheet.deleteRow(r + 1);
+            break;
+          }
+        }
+      }
+    }
+    return createJsonResponse({ status: 'success', message: 'Bukti berhasil dihapus dari BUKTI_DOKUMEN' });
+  }
+
+  // 2. Ambil data Desa (DATA_DESA) atau sheet lain seperti BUKTI_DOKUMEN
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     return createJsonResponse({
@@ -460,6 +658,132 @@ function doPost(e) {
         });
       }
     }
+
+    // 4. Simpan Bukti Foto & Dokumen (Sheet: BUKTI_DOKUMEN)
+    if (action === 'saveEvidence') {
+      var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
+      var headers = [
+        'ID', 'IdDesa', 'Desa', 'IdKec', 'Kecamatan', 'Modul', 'NamaFile', 'Tipe',
+        'Ukuran', 'FormatUkuran', 'WaktuUpload', 'Keterangan',
+        'Link_Dokumen', 'Link_Lihat_Drive', 'Drive_File_ID',
+        'DataUrl_Part1', 'DataUrl_Part2', 'UploadedBy', 'UpdatedAt'
+      ];
+      if (!evSheet) {
+        evSheet = ss.insertSheet('BUKTI_DOKUMEN');
+        evSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        evSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#e2e8f0');
+        evSheet.setFrozenRows(1);
+      } else {
+        // Pastikan baris header terbaru terpasang
+        evSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      }
+
+      var evId = String(data.id || '').trim();
+      var nowStr = new Date().toISOString();
+      var driveFileId = '';
+      var driveDownloadUrl = '';
+      var driveViewUrl = '';
+      var fullBase64 = String(data.dataUrl || data.dataUrl_part1 || '');
+
+      // Simpan langsung ke Google Drive jika DriveApp aktif
+      try {
+        if (fullBase64 && typeof DriveApp !== 'undefined') {
+          var folderName = 'BUKTI_DOKUMEN_BOALEMO';
+          var folders = DriveApp.getFoldersByName(folderName);
+          var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+          try {
+            folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          } catch(eShare) {}
+
+          var cleanBase64 = fullBase64.indexOf('base64,') > -1 ? fullBase64.split('base64,')[1] : fullBase64;
+          var mimeType = 'application/octet-stream';
+          if (data.type === 'image') mimeType = 'image/jpeg';
+          else if (data.type === 'pdf') mimeType = 'application/pdf';
+
+          var decoded = Utilities.base64Decode(cleanBase64);
+          var blob = Utilities.newBlob(decoded, mimeType, String(data.name || 'berkas_bukti'));
+          var file = folder.createFile(blob);
+          try {
+            file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          } catch(eFShare) {}
+
+          driveFileId = file.getId();
+          // Link direct download resmi Google Drive yang langsung memicu download di peramban
+          driveDownloadUrl = 'https://drive.usercontent.google.com/download?id=' + driveFileId + '&export=download';
+          driveViewUrl = 'https://drive.google.com/file/d/' + driveFileId + '/view?usp=sharing';
+        }
+      } catch (errDrive) {
+        Logger.log('DriveApp creation: ' + errDrive.toString());
+      }
+
+      var appUrl = ScriptApp && ScriptApp.getService ? ScriptApp.getService().getUrl() : '';
+      var finalDl = driveDownloadUrl || (appUrl ? (appUrl + '?action=downloadEvidence&id=' + evId) : String(data.downloadUrl || ''));
+      var finalView = driveViewUrl || finalDl;
+
+      var evRow = [
+        evId,
+        String(data.idDesa || ''),
+        String(data.desa || ''),
+        String(data.idKec || ''),
+        String(data.kecamatan || ''),
+        String(data.moduleKey || ''),
+        String(data.name || ''),
+        String(data.type || 'document'),
+        Number(data.size) || 0,
+        String(data.formattedSize || ''),
+        String(data.uploadedAt || ''),
+        String(data.caption || ''),
+        finalDl,     // Kolom M: Link_Dokumen (Langsung Download Berkas HD untuk Superadmin)
+        finalView,   // Kolom N: Link Lihat Drive
+        driveFileId, // Kolom O: Google Drive File ID
+        String(data.thumbnailUrl || data.dataUrl_part1 || '').substring(0, 35000), // Thumbnail ringan untuk kartu galeri
+        '',
+        String(data.uploadedBy || 'Petugas'),
+        nowStr
+      ];
+
+      var allIds = evSheet.getRange('A:A').getValues();
+      var targetRow = -1;
+      for (var i = 1; i < allIds.length; i++) {
+        if (String(allIds[i][0]).trim() === evId) {
+          targetRow = i + 1;
+          break;
+        }
+      }
+
+      if (targetRow > 0) {
+        evSheet.getRange(targetRow, 1, 1, headers.length).setValues([evRow]);
+      } else {
+        evSheet.appendRow(evRow);
+      }
+
+      return createJsonResponse({
+        status: 'success',
+        message: 'Bukti ' + data.name + ' berhasil disimpan di sheet BUKTI_DOKUMEN',
+        downloadUrl: finalDl,
+        viewUrl: finalView,
+        driveFileId: driveFileId
+      });
+    }
+
+    // 5. Hapus Bukti Foto & Dokumen
+    if (action === 'deleteEvidence') {
+      var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
+      if (evSheet) {
+        var evId = String(data.id || '').trim();
+        var allIds = evSheet.getRange('A:A').getValues();
+        for (var i = 1; i < allIds.length; i++) {
+          if (String(allIds[i][0]).trim() === evId) {
+            evSheet.deleteRow(i + 1);
+            break;
+          }
+        }
+      }
+      return createJsonResponse({
+        status: 'success',
+        message: 'Bukti berhasil dihapus dari sheet BUKTI_DOKUMEN'
+      });
+    }
     
     return createJsonResponse({ status: 'error', message: 'Aksi tidak dikenal: ' + action });
   } catch (err) {
@@ -470,5 +794,36 @@ function doPost(e) {
 function createJsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ===============================================================
+// FUNGSI AKTIVASI IZIN GOOGLE DRIVE (SUPERADMIN / ADMIN)
+// ===============================================================
+// Jalankan fungsi "otorisasiGoogleDrive" ini di Apps Script Editor
+// (Pilih fungsi di menu atas > Klik 'Run / Jalankan').
+// Google akan menampilkan pop-up "Authorization required" (Otorisasi Diperlukan):
+// 1. Klik "Review permissions" (Tinjau Izin)
+// 2. Pilih akun Google Anda (syarmanst@gmail.com)
+// 3. Klik "Advanced" (Lanjutan) di kiri bawah
+// 4. Klik "Go to project (unsafe)" / Buka project
+// 5. Klik "Allow" (Izinkan)
+function otorisasiGoogleDrive() {
+  var folderName = 'BUKTI_DOKUMEN_BOALEMO';
+  var folders = DriveApp.getFoldersByName(folderName);
+  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+  folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  Logger.log('SUKSES! Izin Google Drive telah aktif.');
+  Logger.log('Folder Penyimpanan: ' + folder.getName() + ' (ID: ' + folder.getId() + ')');
+  return 'Otorisasi Google Drive Berhasil & Aktif!';
+}
+
+// Fungsi bantu pengecekan status Google Drive
+function testDriveAccess() {
+  try {
+    return otorisasiGoogleDrive();
+  } catch (err) {
+    Logger.log('Error testDriveAccess: ' + err.toString());
+    return 'Belum diotorisasi: ' + err.toString();
+  }
 }
 `;

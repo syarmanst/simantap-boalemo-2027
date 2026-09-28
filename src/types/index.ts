@@ -34,8 +34,13 @@ export interface EvidenceItem {
   size: number; // bytes
   formattedSize: string;
   uploadedAt: string;
-  dataUrl: string; // base64 string
+  dataUrl: string; // HD base64 string or public media link
+  thumbnailUrl?: string; // Preview thumbnail for fast rendering
+  downloadUrl?: string; // Direct download link from Google Sheets / Apps Script
+  viewUrl?: string; // Google Drive preview or cloud viewer link
+  driveFileId?: string; // Google Drive file ID if synced
   caption?: string;
+  uploadedBy?: string;
 }
 
 export interface VillagePlanRecord {

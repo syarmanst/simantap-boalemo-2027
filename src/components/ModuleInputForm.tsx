@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { VillagePlanRecord, ModuleKey, UserRole, ForumSession, KdmpSession, EvidenceItem, UserSession } from '../types';
 import { MODULES_CONFIG, KECAMATAN_LIST } from '../data/initialData';
 import { EvidenceUpload } from './EvidenceUpload';
+import { saveEvidenceToCloud, deleteEvidenceFromCloud } from '../services/evidenceService';
 import {
   calcGenderTotal,
   calcUnsurTotal,
@@ -103,7 +104,7 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
   const currentVillage = villages.find((v) => v.idDesa === currentVillageId) || filteredVillages[0] || villages[0];
   const currentFilteredIndex = filteredVillages.findIndex((v) => v.idDesa === currentVillage?.idDesa);
 
-  // Evidence handlers
+  // Evidence handlers with automatic Google Spreadsheet sync (Sheet: BUKTI_DOKUMEN)
   const handleAddEvidence = (modKey: ModuleKey, item: EvidenceItem) => {
     updateVillage((prev) => {
       const prevEvidence = prev.evidence || {};
@@ -116,6 +117,29 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
         },
       };
     });
+
+    // Otomatis simpan ke cloud Google Spreadsheet (Sheet: BUKTI_DOKUMEN)
+    saveEvidenceToCloud(currentVillage, modKey, item, session.displayName)
+      .then((ok) => {
+        if (ok && item.downloadUrl) {
+          updateVillage((prev) => {
+            const prevEvidence = prev.evidence || {};
+            const modItems = prevEvidence[modKey] || [];
+            return {
+              ...prev,
+              evidence: {
+                ...prevEvidence,
+                [modKey]: modItems.map((it) =>
+                  it.id === item.id ? { ...it, downloadUrl: item.downloadUrl, viewUrl: item.viewUrl, driveFileId: item.driveFileId } : it
+                ),
+              },
+            };
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('Gagal menyimpan bukti ke Google Spreadsheet:', err);
+      });
   };
 
   const handleRemoveEvidence = (modKey: ModuleKey, id: string) => {
@@ -130,9 +154,15 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
         },
       };
     });
+
+    // Otomatis hapus dari cloud Google Spreadsheet (Sheet: BUKTI_DOKUMEN)
+    deleteEvidenceFromCloud(id).catch((err) => {
+      console.warn('Gagal menghapus bukti dari Google Spreadsheet:', err);
+    });
   };
 
   const handleUpdateCaption = (modKey: ModuleKey, id: string, caption: string) => {
+    let updatedItem: EvidenceItem | null = null;
     updateVillage((prev) => {
       const prevEvidence = prev.evidence || {};
       const modItems = prevEvidence[modKey] || [];
@@ -140,10 +170,22 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
         ...prev,
         evidence: {
           ...prevEvidence,
-          [modKey]: modItems.map((it) => (it.id === id ? { ...it, caption } : it)),
+          [modKey]: modItems.map((it) => {
+            if (it.id === id) {
+              updatedItem = { ...it, caption };
+              return updatedItem;
+            }
+            return it;
+          }),
         },
       };
     });
+
+    if (updatedItem) {
+      saveEvidenceToCloud(currentVillage, modKey, updatedItem, session.displayName).catch((err) => {
+        console.warn('Gagal memperbarui caption bukti di Google Spreadsheet:', err);
+      });
+    }
   };
 
   const progress = calculateVillageProgress(currentVillage);
