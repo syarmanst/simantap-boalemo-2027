@@ -21,7 +21,13 @@ import { AddVillageModal } from './components/AddVillageModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { exportToExcel } from './utils/excelHandler';
 import { sanitizeVillageDates } from './utils/calculations';
-import { fetchEvidenceFromCloud, mergeEvidenceIntoVillages } from './services/evidenceService';
+import {
+  fetchEvidenceFromCloud,
+  mergeEvidenceIntoVillages,
+  sanitizeVillagesForStorage,
+  saveEvidenceCache,
+  loadEvidenceCache
+} from './services/evidenceService';
 import {
   GoogleSheetsConfig,
   SHEETS_CONFIG_KEY,
@@ -39,18 +45,21 @@ const SESSION_KEY = 'boalemo_user_session';
 
 export default function App() {
   const [villages, setVillages] = useState<VillagePlanRecord[]>(() => {
+    const cachedEv = loadEvidenceCache();
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map(sanitizeVillageDates);
+          const list = parsed.map(sanitizeVillageDates);
+          return cachedEv.size > 0 ? mergeEvidenceIntoVillages(list, cachedEv) : list;
         }
       }
     } catch (e) {
       console.error('Failed to load saved state from localStorage:', e);
     }
-    return getInitialVillages().map(sanitizeVillageDates);
+    const initial = getInitialVillages().map(sanitizeVillageDates);
+    return cachedEv.size > 0 ? mergeEvidenceIntoVillages(initial, cachedEv) : initial;
   });
 
   // Default session: Viewer (Pengunjung publik dapat langsung melihat tanpa melalui login)
@@ -97,48 +106,65 @@ export default function App() {
   const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
   const [cloudSyncBanner, setCloudSyncBanner] = useState<string | null>(null);
 
+  // Fungsi penarikan data lengkap dari cloud (Data Desa + Berkas Bukti HD)
+  const loadCloudData = async (isSilent = false) => {
+    const scriptUrl = getAppsScriptUrl();
+    if (!scriptUrl) return;
+
+    try {
+      // Jalankan paralel tarik bukti dan data desa agar tidak saling menimpa
+      const [evRes, villagesRes] = await Promise.allSettled([
+        fetchEvidenceFromCloud(scriptUrl),
+        fetchFromAppsScript(scriptUrl, getInitialVillages()),
+      ]);
+
+      let newVillages: VillagePlanRecord[] = [];
+      if (villagesRes.status === 'fulfilled' && villagesRes.value?.villages?.length > 0) {
+        newVillages = villagesRes.value.villages.map(sanitizeVillageDates);
+      }
+
+      setVillages((prev) => {
+        // Gunakan newVillages jika tersedia dari Google Sheets, tetapi SELALU pertahankan evidence dari prev
+        const base: VillagePlanRecord[] = (newVillages.length > 0 ? newVillages : prev).map((v) => {
+          const prevV = prev.find((p) => p.idDesa === v.idDesa);
+          return {
+            ...v,
+            evidence: prevV?.evidence || v.evidence || {},
+          };
+        });
+
+        let finalVillages: VillagePlanRecord[] = base;
+
+        // Gabungkan bukti yang ditarik dari sheet BUKTI_DOKUMEN
+        if (evRes.status === 'fulfilled' && evRes.value?.success && evRes.value.evidenceMap) {
+          finalVillages = mergeEvidenceIntoVillages(base, evRes.value.evidenceMap);
+          saveEvidenceCache(evRes.value.evidenceMap);
+        }
+
+        try {
+          const safe = sanitizeVillagesForStorage(finalVillages);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
+        } catch (e) {}
+
+        return finalVillages;
+      });
+
+      if (!isSilent) {
+        setCloudSyncBanner('Data perencanaan dan berkas bukti berhasil disinkronkan dari Google Sheets');
+        setTimeout(() => setCloudSyncBanner(null), 4000);
+      }
+    } catch (err) {
+      console.warn('Sync cloud error:', err);
+    }
+  };
+
   // Initialize Google Auth state listener, sync credentials & auto-pull villages from Google Spreadsheet on startup
   useEffect(() => {
     // 1. Sinkronisasi kredensial akun & password dari Google Spreadsheet
     syncPasswordsFromCloud().catch(() => {});
 
-    // 2. Tarik data perencanaan 82 desa secara otomatis dari Google Spreadsheet
-    const scriptUrl = getAppsScriptUrl();
-    if (scriptUrl) {
-      fetchFromAppsScript(scriptUrl, getInitialVillages())
-        .then((result) => {
-          if (result && result.villages && result.count > 0) {
-            const sanitized = result.villages.map(sanitizeVillageDates);
-            setVillages(sanitized);
-            try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-            } catch (e) {}
-            setCloudSyncBanner(`Data perencanaan terbaru (${result.count} desa) tersinkron otomatis dari Google Spreadsheet`);
-            setTimeout(() => setCloudSyncBanner(null), 5000);
-          }
-        })
-        .catch((err) => {
-          console.warn('Auto fetch data desa on start:', err);
-        });
-
-      // 3. Tarik seluruh bukti foto & dokumen pendukung (Sheet: BUKTI_DOKUMEN)
-      fetchEvidenceFromCloud(scriptUrl)
-        .then((evRes) => {
-          if (evRes.success && evRes.totalCount > 0) {
-            setVillages((prev) => {
-              const merged = mergeEvidenceIntoVillages(prev, evRes.evidenceMap);
-              try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-              } catch (e) {}
-              return merged;
-            });
-            console.log(`Sinkronisasi bukti cloud: ${evRes.totalCount} berkas dimuat dari sheet BUKTI_DOKUMEN`);
-          }
-        })
-        .catch((err) => {
-          console.warn('Auto fetch evidence error:', err);
-        });
-    }
+    // 2. Tarik data desa & berkas bukti secara terkoordinasi
+    loadCloudData(false);
 
     const unsubscribe = initGoogleAuth(
       (user, token) => {
@@ -153,10 +179,11 @@ export default function App() {
     };
   }, []);
 
-  // Persist villages state to localStorage
+  // Persist villages state to localStorage secara aman (anti-kuota limit 5MB)
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(villages));
+      const safe = sanitizeVillagesForStorage(villages);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
     } catch (e) {
       console.error('Failed to persist to localStorage:', e);
     }
@@ -262,6 +289,8 @@ export default function App() {
 
   const handleLoginSuccess = (newSession: UserSession) => {
     setSession(newSession);
+    // Segera sinkronkan kembali bukti & data dari cloud saat admin/pengguna login
+    loadCloudData(true);
     // If Admin Kecamatan, focus on a village from their kecamatan
     if (newSession.role === 'admin_kecamatan' && newSession.kecamatanCode) {
       const kecVillage = villages.find(
@@ -275,6 +304,7 @@ export default function App() {
 
   const handleLogout = () => {
     setSession(DEFAULT_VIEWER_SESSION);
+    loadCloudData(true);
   };
 
   const handleSelectVillageForEdit = (villageId: string, moduleKey?: ModuleKey) => {

@@ -41,6 +41,8 @@ export const EvidenceUpload: React.FC<EvidenceUploadProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [previewItem, setPreviewItem] = useState<EvidenceItem | null>(null);
+  const [deletingItem, setDeletingItem] = useState<EvidenceItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [tempCaption, setTempCaption] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -483,8 +485,8 @@ export const EvidenceUpload: React.FC<EvidenceUploadProps> = ({
                     {canEdit && (
                       <button
                         type="button"
-                        onClick={() => onRemoveEvidence(item.id)}
-                        title="Hapus Berkas Ini"
+                        onClick={() => setDeletingItem(item)}
+                        title="Hapus Berkas Ini (Otomatis hapus di Spreadsheet & Drive)"
                         className="p-1.5 text-slate-400 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -539,6 +541,17 @@ export const EvidenceUpload: React.FC<EvidenceUploadProps> = ({
                   <Download className="w-3.5 h-3.5" />
                   <span>Unduh HD</span>
                 </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setDeletingItem(previewItem)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-700/80 hover:bg-rose-600 text-xs font-semibold text-white transition-colors cursor-pointer shadow-xs"
+                    title="Hapus berkas dari aplikasi, Spreadsheet, dan Drive"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setPreviewItem(null)}
@@ -610,6 +623,80 @@ export const EvidenceUpload: React.FC<EvidenceUploadProps> = ({
                   <span>·</span>
                   <span>Modul: {moduleName}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Delete Confirmation Modal (Bebas dari pemblokiran modal iFrame browser) */}
+      {deletingItem && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Hapus Berkas Bukti?</h3>
+                  <p className="text-xs text-slate-500">Tindakan ini akan menghapus dokumen secara permanen.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 my-3 text-xs space-y-1">
+                <div className="font-bold text-slate-800 truncate">{deletingItem.name}</div>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                  <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-semibold border border-purple-200/60">
+                    {deletingItem.formattedSize}
+                  </span>
+                  <span>•</span>
+                  <span>Diunggah: {deletingItem.uploadedAt}</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed mb-5">
+                Berkas ini akan <strong>dihapus permanen</strong> dari aplikasi, Google Spreadsheet (sheet <code>BUKTI_DOKUMEN</code>), dan Google Drive.
+              </p>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setDeletingItem(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    try {
+                      await onRemoveEvidence(deletingItem.id);
+                      if (previewItem?.id === deletingItem.id) {
+                        setPreviewItem(null);
+                      }
+                      setDeletingItem(null);
+                    } finally {
+                      setIsDeleting(false);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 transition-colors shadow-xs cursor-pointer"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Menghapus...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Ya, Hapus Sekarang</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>

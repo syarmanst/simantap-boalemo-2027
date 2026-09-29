@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { VillagePlanRecord, ModuleKey, UserRole, ForumSession, KdmpSession, EvidenceItem, UserSession } from '../types';
 import { MODULES_CONFIG, KECAMATAN_LIST } from '../data/initialData';
 import { EvidenceUpload } from './EvidenceUpload';
-import { saveEvidenceToCloud, deleteEvidenceFromCloud } from '../services/evidenceService';
+import { saveEvidenceToCloud, deleteEvidenceFromCloud, removeEvidenceFromCache } from '../services/evidenceService';
 import {
   calcGenderTotal,
   calcUnsurTotal,
@@ -106,34 +106,62 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
 
   // Evidence handlers with automatic Google Spreadsheet sync (Sheet: BUKTI_DOKUMEN)
   const handleAddEvidence = (modKey: ModuleKey, item: EvidenceItem) => {
-    updateVillage((prev) => {
-      const prevEvidence = prev.evidence || {};
-      const modItems = prevEvidence[modKey] || [];
-      return {
-        ...prev,
-        evidence: {
-          ...prevEvidence,
-          [modKey]: [item, ...modItems],
-        },
-      };
-    });
+    // Ambil data desa terbaru secara langsung dari prop villages
+    const targetVillage = villages.find((v) => v.idDesa === currentVillage.idDesa) || currentVillage;
+    const prevEvidence = targetVillage.evidence || {};
+    const modItems = prevEvidence[modKey] || [];
+    
+    // Pastikan berkas baru terdaftar dan tidak duplikat
+    const updatedItems = [item, ...modItems.filter((it) => it.id !== item.id)];
+    
+    const updatedVillage: VillagePlanRecord = {
+      ...targetVillage,
+      evidence: {
+        ...prevEvidence,
+        [modKey]: updatedItems,
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: session.displayName,
+    };
 
-    // Otomatis simpan ke cloud Google Spreadsheet (Sheet: BUKTI_DOKUMEN)
-    saveEvidenceToCloud(currentVillage, modKey, item, session.displayName)
+    // Simpan ke state aplikasi secara langsung agar berkas tidak hilang!
+    onSaveVillage(updatedVillage);
+    setSaveToast(true);
+    setTimeout(() => setSaveToast(false), 2000);
+
+    // Otomatis simpan ke cloud Google Spreadsheet (Sheet: BUKTI_DOKUMEN) di latar belakang
+    saveEvidenceToCloud(targetVillage, modKey, item, session.displayName)
       .then((ok) => {
-        if (ok && item.downloadUrl) {
-          updateVillage((prev) => {
-            const prevEvidence = prev.evidence || {};
-            const modItems = prevEvidence[modKey] || [];
-            return {
-              ...prev,
-              evidence: {
-                ...prevEvidence,
-                [modKey]: modItems.map((it) =>
-                  it.id === item.id ? { ...it, downloadUrl: item.downloadUrl, viewUrl: item.viewUrl, driveFileId: item.driveFileId } : it
-                ),
-              },
-            };
+        if (ok && (item.downloadUrl || item.driveFileId)) {
+          // Ambil kembali state desa terbaru agar tidak menimpa perubahan lain
+          const latestVillage = villages.find((v) => v.idDesa === targetVillage.idDesa) || updatedVillage;
+          const curEvidence = latestVillage.evidence || {};
+          const curItems = curEvidence[modKey] || [];
+          
+          // Perbarui metadata link cloud pada berkas yang bersangkutan (JANGAN PERNAH MENGHAPUS BERKAS)
+          const enrichedItems = curItems.map((it) => {
+            if (it.id === item.id) {
+              return {
+                ...it,
+                downloadUrl: item.downloadUrl || it.downloadUrl,
+                viewUrl: item.viewUrl || it.viewUrl,
+                driveFileId: item.driveFileId || it.driveFileId,
+              };
+            }
+            return it;
+          });
+
+          // Jika item belum ada di list (misal state terlambat re-render), pastikan tetap ada
+          if (!enrichedItems.some((it) => it.id === item.id)) {
+            enrichedItems.unshift(item);
+          }
+
+          onSaveVillage({
+            ...latestVillage,
+            evidence: {
+              ...curEvidence,
+              [modKey]: enrichedItems,
+            },
           });
         }
       })
@@ -142,47 +170,63 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
       });
   };
 
-  const handleRemoveEvidence = (modKey: ModuleKey, id: string) => {
-    updateVillage((prev) => {
-      const prevEvidence = prev.evidence || {};
-      const modItems = prevEvidence[modKey] || [];
-      return {
-        ...prev,
-        evidence: {
-          ...prevEvidence,
-          [modKey]: modItems.filter((it) => it.id !== id),
-        },
-      };
-    });
+  const handleRemoveEvidence = async (modKey: ModuleKey, id: string) => {
+    // Ambil data desa terbaru secara langsung dari prop villages
+    const targetVillage = villages.find((v) => v.idDesa === currentVillage.idDesa) || currentVillage;
+    const currentEv = targetVillage.evidence || {};
+    const modItems = currentEv[modKey] || [];
+    const itemToDelete = modItems.find((it) => it.id === id);
+    const driveFileId = itemToDelete?.driveFileId;
 
-    // Otomatis hapus dari cloud Google Spreadsheet (Sheet: BUKTI_DOKUMEN)
-    deleteEvidenceFromCloud(id).catch((err) => {
-      console.warn('Gagal menghapus bukti dari Google Spreadsheet:', err);
+    const remainingItems = modItems.filter((it) => it.id !== id);
+
+    // Hapus dari cache localStorage seketika dan catat ke black-list deleted IDs
+    removeEvidenceFromCache(targetVillage.idDesa, modKey, id);
+
+    onSaveVillage({
+      ...targetVillage,
+      evidence: {
+        ...currentEv,
+        [modKey]: remainingItems,
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: session.displayName,
+    });
+    setSaveToast(true);
+    setTimeout(() => setSaveToast(false), 2000);
+
+    // Otomatis hapus dari cloud Google Spreadsheet (Sheet: BUKTI_DOKUMEN) & Google Drive
+    await deleteEvidenceFromCloud(id, driveFileId).catch((err) => {
+      console.warn('Gagal menghapus bukti dari Google Spreadsheet & Drive:', err);
     });
   };
 
   const handleUpdateCaption = (modKey: ModuleKey, id: string, caption: string) => {
+    const targetVillage = villages.find((v) => v.idDesa === currentVillage.idDesa) || currentVillage;
+    const prevEvidence = targetVillage.evidence || {};
+    const modItems = prevEvidence[modKey] || [];
     let updatedItem: EvidenceItem | null = null;
-    updateVillage((prev) => {
-      const prevEvidence = prev.evidence || {};
-      const modItems = prevEvidence[modKey] || [];
-      return {
-        ...prev,
-        evidence: {
-          ...prevEvidence,
-          [modKey]: modItems.map((it) => {
-            if (it.id === id) {
-              updatedItem = { ...it, caption };
-              return updatedItem;
-            }
-            return it;
-          }),
-        },
-      };
+
+    const updatedItems = modItems.map((it) => {
+      if (it.id === id) {
+        updatedItem = { ...it, caption };
+        return updatedItem;
+      }
+      return it;
+    });
+
+    onSaveVillage({
+      ...targetVillage,
+      evidence: {
+        ...prevEvidence,
+        [modKey]: updatedItems,
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: session.displayName,
     });
 
     if (updatedItem) {
-      saveEvidenceToCloud(currentVillage, modKey, updatedItem, session.displayName).catch((err) => {
+      saveEvidenceToCloud(targetVillage, modKey, updatedItem, session.displayName).catch((err) => {
         console.warn('Gagal memperbarui caption bukti di Google Spreadsheet:', err);
       });
     }
@@ -204,7 +248,9 @@ export const ModuleInputForm: React.FC<ModuleInputFormProps> = ({
 
   const updateVillage = (updater: (prev: VillagePlanRecord) => VillagePlanRecord) => {
     if (!canEdit) return;
-    const rawUpdated = updater({ ...currentVillage });
+    // Selalu ambil desa terkini dari villages prop untuk menghindari closure stale state
+    const latest = villages.find((v) => v.idDesa === currentVillage.idDesa) || currentVillage;
+    const rawUpdated = updater({ ...latest });
     const updated = sanitizeVillageDates(rawUpdated);
     updated.updatedAt = new Date().toISOString();
     updated.updatedBy = session.displayName;

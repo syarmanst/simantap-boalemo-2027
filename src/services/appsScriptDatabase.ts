@@ -508,22 +508,44 @@ function doGet(e) {
     }
   }
 
-  // 1e. Hapus Bukti Dokumen via GET parameter
+  // 1e. Hapus Bukti Dokumen via GET parameter (Spreadsheet & Google Drive)
   if (action === 'deleteEvidence') {
     var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
-    if (evSheet) {
-      var delId = String((e && e.parameter && e.parameter.id) || '').trim();
-      if (delId) {
-        var allIds = evSheet.getRange('A:A').getValues();
-        for (var r = 1; r < allIds.length; r++) {
-          if (String(allIds[r][0]).trim() === delId) {
-            evSheet.deleteRow(r + 1);
-            break;
+    var delId = String((e && e.parameter && e.parameter.id) || '').trim();
+    var driveFileId = String((e && e.parameter && e.parameter.driveFileId) || '').trim();
+    var driveTrashed = false;
+
+    if (evSheet && delId) {
+      var allData = evSheet.getDataRange().getValues();
+      for (var r = 1; r < allData.length; r++) {
+        if (String(allData[r][0]).trim() === delId) {
+          if (!driveFileId) {
+            driveFileId = String(allData[r][14] || '').trim();
           }
+          evSheet.deleteRow(r + 1);
+          break;
         }
       }
     }
-    return createJsonResponse({ status: 'success', message: 'Bukti berhasil dihapus dari BUKTI_DOKUMEN' });
+
+    // Hapus juga berkas fisik di Google Drive
+    if (driveFileId && typeof DriveApp !== 'undefined') {
+      try {
+        var fileToTrash = DriveApp.getFileById(driveFileId);
+        if (fileToTrash) {
+          fileToTrash.setTrashed(true);
+          driveTrashed = true;
+        }
+      } catch (errTrash) {
+        Logger.log('Drive delete error: ' + errTrash.toString());
+      }
+    }
+
+    return createJsonResponse({
+      status: 'success',
+      message: 'Bukti berhasil dihapus dari Spreadsheet' + (driveTrashed ? ' dan Google Drive' : ''),
+      driveTrashed: driveTrashed
+    });
   }
 
   // 2. Ambil data Desa (DATA_DESA) atau sheet lain seperti BUKTI_DOKUMEN
@@ -766,22 +788,43 @@ function doPost(e) {
       });
     }
 
-    // 5. Hapus Bukti Foto & Dokumen
+    // 5. Hapus Bukti Foto & Dokumen (Spreadsheet & Google Drive)
     if (action === 'deleteEvidence') {
       var evSheet = ss.getSheetByName('BUKTI_DOKUMEN');
-      if (evSheet) {
-        var evId = String(data.id || '').trim();
-        var allIds = evSheet.getRange('A:A').getValues();
-        for (var i = 1; i < allIds.length; i++) {
-          if (String(allIds[i][0]).trim() === evId) {
+      var evId = String(data.id || '').trim();
+      var driveFileId = String(data.driveFileId || '').trim();
+      var driveTrashed = false;
+
+      if (evSheet && evId) {
+        var allData = evSheet.getDataRange().getValues();
+        for (var i = 1; i < allData.length; i++) {
+          if (String(allData[i][0]).trim() === evId) {
+            if (!driveFileId) {
+              driveFileId = String(allData[i][14] || '').trim();
+            }
             evSheet.deleteRow(i + 1);
             break;
           }
         }
       }
+
+      // Hapus berkas fisik di Google Drive
+      if (driveFileId && typeof DriveApp !== 'undefined') {
+        try {
+          var fileToTrash = DriveApp.getFileById(driveFileId);
+          if (fileToTrash) {
+            fileToTrash.setTrashed(true);
+            driveTrashed = true;
+          }
+        } catch (errTrash) {
+          Logger.log('Drive delete error: ' + errTrash.toString());
+        }
+      }
+
       return createJsonResponse({
         status: 'success',
-        message: 'Bukti berhasil dihapus dari sheet BUKTI_DOKUMEN'
+        message: 'Bukti berhasil dihapus dari sheet BUKTI_DOKUMEN' + (driveTrashed ? ' dan Google Drive.' : '.'),
+        driveTrashed: driveTrashed
       });
     }
     

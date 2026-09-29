@@ -362,7 +362,7 @@ export const fetchEvidenceFromCloud = async (
     // Baris pertama (index 0) adalah header
     for (let i = 1; i < rows.length; i++) {
       const parsed = rowToEvidence(rows[i]);
-      if (parsed) {
+      if (parsed && !isDeletedEvidence(parsed.item.id)) {
         totalCount++;
         const currentVillageEv = evidenceMap.get(parsed.idDesa) || {};
         const modItems = currentVillageEv[parsed.moduleKey] || [];
@@ -466,12 +466,59 @@ export const saveEvidenceToCloud = async (
 };
 
 /**
- * Hapus bukti dari sheet BUKTI_DOKUMEN di Google Spreadsheet
+ * Pelacak berkas yang telah dihapus agar tidak pernah bangkit kembali dari cache atau cloud
+ */
+export const DELETED_EVIDENCE_KEY = 'boalemo_deleted_evidence_ids';
+
+export const getDeletedEvidenceIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(DELETED_EVIDENCE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch (e) {}
+  return new Set();
+};
+
+export const recordDeletedEvidenceId = (id: string) => {
+  try {
+    const set = getDeletedEvidenceIds();
+    set.add(id);
+    localStorage.setItem(DELETED_EVIDENCE_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+};
+
+export const isDeletedEvidence = (id: string): boolean => {
+  return getDeletedEvidenceIds().has(id);
+};
+
+export const removeEvidenceFromCache = (idDesa: string, moduleKey: ModuleKey, evidenceId: string) => {
+  try {
+    recordDeletedEvidenceId(evidenceId);
+    const saved = localStorage.getItem(EVIDENCE_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed[idDesa] && parsed[idDesa][moduleKey]) {
+        parsed[idDesa][moduleKey] = parsed[idDesa][moduleKey].filter((it: EvidenceItem) => it.id !== evidenceId);
+        localStorage.setItem(EVIDENCE_STORAGE_KEY, JSON.stringify(parsed));
+      }
+    }
+  } catch (e) {
+    console.warn('Gagal menghapus bukti dari cache localStorage:', e);
+  }
+};
+
+/**
+ * Hapus bukti dari sheet BUKTI_DOKUMEN di Google Spreadsheet dan Google Drive
  */
 export const deleteEvidenceFromCloud = async (
   evidenceId: string,
+  driveFileId?: string,
   scriptUrl: string = DEFAULT_APPS_SCRIPT_URL
 ): Promise<boolean> => {
+  // Catat langsung ID berkas yang dihapus ke storage
+  recordDeletedEvidenceId(evidenceId);
   const urlToUse = (scriptUrl || getAppsScriptUrl() || DEFAULT_APPS_SCRIPT_URL).trim();
   if (!urlToUse || !evidenceId) return false;
 
@@ -479,6 +526,7 @@ export const deleteEvidenceFromCloud = async (
     action: 'deleteEvidence',
     sheetName: EVIDENCE_SHEET_NAME,
     id: evidenceId,
+    driveFileId: driveFileId || '',
   };
 
   try {
@@ -497,7 +545,7 @@ export const deleteEvidenceFromCloud = async (
 
   // Fallback GET
   try {
-    const fallbackUrl = `${urlToUse}?action=deleteEvidence&id=${encodeURIComponent(evidenceId)}&sheetName=${EVIDENCE_SHEET_NAME}&t=${Date.now()}`;
+    const fallbackUrl = `${urlToUse}?action=deleteEvidence&id=${encodeURIComponent(evidenceId)}&driveFileId=${encodeURIComponent(driveFileId || '')}&sheetName=${EVIDENCE_SHEET_NAME}&t=${Date.now()}`;
     const resGet = await fetch(fallbackUrl, {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -506,6 +554,88 @@ export const deleteEvidenceFromCloud = async (
   } catch (errGet) {
     return false;
   }
+};
+
+/**
+ * Menyimpan cache data bukti ke localStorage secara aman tanpa melebihi kuota 5MB
+ */
+export const saveEvidenceCache = (
+  evidenceMap: Map<string, Partial<Record<ModuleKey, EvidenceItem[]>>>
+) => {
+  try {
+    const serialized: Record<string, Partial<Record<ModuleKey, EvidenceItem[]>>> = {};
+    evidenceMap.forEach((modules, idDesa) => {
+      serialized[idDesa] = {};
+      Object.keys(modules).forEach((key) => {
+        const modKey = key as ModuleKey;
+        const items = modules[modKey] || [];
+        // Hilangkan data base64 raksasa untuk penyimpanan lokal aman
+        serialized[idDesa][modKey] = items.map((it) => ({
+          ...it,
+          dataUrl: it.dataUrl && it.dataUrl.length > 50000 ? (it.thumbnailUrl || it.downloadUrl || '') : it.dataUrl,
+        }));
+      });
+    });
+    localStorage.setItem(EVIDENCE_STORAGE_KEY, JSON.stringify(serialized));
+  } catch (e) {
+    console.warn('Gagal menyimpan cache bukti ke localStorage:', e);
+  }
+};
+
+/**
+ * Memuat cache data bukti dari localStorage
+ */
+export const loadEvidenceCache = (): Map<string, Partial<Record<ModuleKey, EvidenceItem[]>>> => {
+  const map = new Map<string, Partial<Record<ModuleKey, EvidenceItem[]>>>();
+  try {
+    const saved = localStorage.getItem(EVIDENCE_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object') {
+        Object.keys(parsed).forEach((idDesa) => {
+          const modObj: Partial<Record<ModuleKey, EvidenceItem[]>> = {};
+          Object.keys(parsed[idDesa] || {}).forEach((mKey) => {
+            const m = mKey as ModuleKey;
+            modObj[m] = (parsed[idDesa][m] || []).filter((it: EvidenceItem) => !isDeletedEvidence(it.id));
+          });
+          map.set(idDesa, modObj);
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('Gagal memuat cache bukti dari localStorage:', e);
+  }
+  return map;
+};
+
+/**
+ * Sanitasi daftar desa sebelum disimpan ke localStorage agar terbebas dari kuota limit 5MB
+ */
+export const sanitizeVillagesForStorage = (villages: VillagePlanRecord[]): VillagePlanRecord[] => {
+  return villages.map((v) => {
+    if (!v.evidence) return v;
+    const cleanEvidence: Partial<Record<ModuleKey, EvidenceItem[]>> = {};
+    Object.keys(v.evidence).forEach((key) => {
+      const modKey = key as ModuleKey;
+      const items = (v.evidence?.[modKey] || []).filter((it) => !isDeletedEvidence(it.id));
+      cleanEvidence[modKey] = items.map((it) => {
+        // Jika dataUrl adalah base64 raksasa (>50KB), ganti dengan cloud URL / thumbnail agar hemat kuota
+        const isHugeBase64 = it.dataUrl && it.dataUrl.length > 50000;
+        const safeUrl = isHugeBase64
+          ? (it.thumbnailUrl || (it.driveFileId ? `https://lh3.googleusercontent.com/d/${it.driveFileId}=s0` : it.downloadUrl) || '')
+          : it.dataUrl;
+
+        return {
+          ...it,
+          dataUrl: safeUrl,
+        };
+      });
+    });
+    return {
+      ...v,
+      evidence: cleanEvidence,
+    };
+  });
 };
 
 /**
@@ -524,8 +654,8 @@ export const mergeEvidenceIntoVillages = (
     const mergedEv = { ...(v.evidence || {}) };
     Object.keys(cloudEv).forEach((key) => {
       const modKey = key as ModuleKey;
-      const cloudItems = cloudEv[modKey] || [];
-      const localItems = mergedEv[modKey] || [];
+      const cloudItems = (cloudEv[modKey] || []).filter((it) => !isDeletedEvidence(it.id));
+      const localItems = (mergedEv[modKey] || []).filter((it) => !isDeletedEvidence(it.id));
 
       // Gabungkan dan hindari duplikat ID
       const mapById = new Map<string, EvidenceItem>();
